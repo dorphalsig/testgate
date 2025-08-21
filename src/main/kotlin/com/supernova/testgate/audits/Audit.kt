@@ -13,7 +13,7 @@ data class Finding(
     val stacktrace: List<String> = emptyList()
 )
 
-data class CheckpointResult(
+public data class AuditResult(
     val module: String,
     val name: String,
     val findings: List<Finding>,
@@ -23,5 +23,5 @@ data class CheckpointResult(
 )
 
 interface Audit {
-    fun check(callback:(CheckpointResult) -> Unit)
+    fun check(callback:(AuditResult) -> Unit)
 }
