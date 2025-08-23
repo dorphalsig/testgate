@@ -22,7 +22,7 @@ class DetektAudit(
     private val moduleDir: File,
     private val tolerancePercent: Int?,
     whitelistPatterns: List<String> = emptyList(),
-    hardFailRuleIds: List<String> = emptyList(),
+    private val hardFailRuleIds: List<String> = emptyList(),
     private val logger: Logger
 ) : Audit {
 

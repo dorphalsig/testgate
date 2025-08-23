@@ -1,20 +1,25 @@
 plugins {
-    `kotlin-dsl`          // uses Gradle’s embedded Kotlin; no separate kotlin plugin version needed
+    `kotlin-dsl`
     `java-gradle-plugin`
-}
-
-repositories {
-    google()
-    mavenCentral()
-    gradlePluginPortal()
+    `maven-publish`
 }
 
 gradlePlugin {
     plugins {
-        create("testGate") {
+        register("testGate") {
             id = "com.supernova.testgate"
             implementationClass = "com.supernova.testgate.TestGatePlugin"
         }
+    }
+}
+
+
+group = "com.supernova"
+version = "0.1.0-SNAPSHOT"
+
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
     }
 }
 
