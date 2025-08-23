@@ -1,237 +1,136 @@
 package com.supernova.testgate.audits
 
 import java.io.File
-import java.nio.file.Files
+import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Document
 
 /**
- * Matches file paths or FQCNs against whitelist patterns.
+ * Utility classes and helpers shared by TestGate audits.
  *
- * Supported wildcards (path-glob style):
- *  - `*`  : any chars within a single segment (no '/')
- *  - `**` : any depth across directories (including zero segments)
- *  - `?`  : any single char within a segment
+ * Keep helpers small and practical—no micro abstractions.
+ */
+
+// -------------------- Whitelist matching --------------------
+
+/**
+ * Matches file paths or FQCNs/symbols against allow-list patterns.
  *
- * Legacy FQCN-style wildcards are also supported:
- *  - `.*`  : single segment
- *  - `..*` : any depth (including zero)
- *
- * Notes:
- *  - Paths are normalized to forward slashes.
- *  - If a pattern starts with '/', it’s treated as anchored to the start of the path.
- *    Otherwise it can match as a suffix (i.e., anywhere in the path).
+ * Pattern semantics:
+ * - Path-style wildcards:
+ *   *  : any chars within a single segment (no '/')
+ *   ** : any depth across directories (including zero segments)
+ *   ?  : any single char within a segment
+ * - Leading "/" in a pattern anchors it to the start of the (normalized) path.
+ *   Without leading "/", the pattern may match anywhere in the path.
+ * - FQCNs are matched with dot-form as-is and slash-form ('.' -> '/').
  */
 class WhitelistMatcher(patterns: Collection<String>) {
+    private val compiled: List<Regex> = patterns.filter { it.isNotBlank() }.map { toRegex(it.trim()) }
 
-    private val regexes: List<Regex> = patterns
-        .asSequence()
-        .map { it.trim() }
-        .filter { it.isNotEmpty() }
-        .flatMap { compilePatternVariants(it) }
-        .toList()
-
-    /**
-     * Checks if a file system path matches any whitelist pattern.
-     * @param path A file path; Windows backslashes are accepted.
-     */
-    fun matchesPath(path: String?): Boolean {
-        if (path.isNullOrBlank()) return false
-        val norm = normalizePath(path)
-        return regexes.any { it.matches(norm) }
+    fun matchesPath(rawPath: String?): Boolean {
+        if (rawPath.isNullOrBlank()) return false
+        val p = normalizePath(rawPath)
+        return compiled.any { it.matches(p) }
     }
 
-    /**
-     * Checks if a fully-qualified class/symbol matches any whitelist pattern.
-     * Matches both dot-form (e.g., com.foo.Bar) and slash-form.
-     */
     fun matchesFqcnOrSymbol(value: String?): Boolean {
         if (value.isNullOrBlank()) return false
         val dot = value
         val slash = value.replace('.', '/')
-        val normSlash = normalizePath(slash)
-        return regexes.any { rx -> rx.matches(dot) || rx.matches(normSlash) }
+        val norm = normalizePath(slash)
+        return compiled.any { rx -> rx.matches(dot) || rx.matches(norm) }
     }
-
-    // --- internals ---
 
     private fun normalizePath(p: String): String {
         val s = p.replace('\\', '/')
-        // ensure leading slash so our anchored regexes are consistent
+        // Ensure a single leading "/" for anchored patterns to behave consistently
         return if (s.startsWith('/')) s else "/$s"
     }
 
-    private fun compilePatternVariants(raw: String): Sequence<Regex> {
-        // Normalize path separators in the raw pattern
-        val pat = raw.replace('\\', '/')
-
-        val variants = mutableListOf<Pair<String, Boolean>>() // (pattern, anchored?)
-        val anchored = pat.startsWith('/')
-
-        // Variant 1: treat the pattern as path-style as-is
-        variants += pat to anchored
-
-        // Variant 2: if it looks like an FQCN (no slashes but contains dots), support legacy wildcards
-        val looksLikeFqcn = !pat.contains('/') && pat.contains('.')
-        if (looksLikeFqcn) {
-            var fq = pat
-            // legacy wildcards: "..*" => "/**", ".*" => "/*", then convert dots to slashes
-            fq = fq.replace("..*", "/**")
-            fq = fq.replace(".*", "/*")
-            fq = fq.replace('.', '/')
-            variants += (fq to false) // not anchored by default
-        }
-
-        return variants.asSequence().map { (v, isAnchored) -> globToRegex(v, isAnchored) }
-    }
-
-    private fun globToRegex(globIn: String, anchored: Boolean): Regex {
-        // Remove a single leading slash; we'll add our own anchors
-        val glob = if (globIn.startsWith('/')) globIn.drop(1) else globIn
-
-        val sb = StringBuilder()
-        var i = 0
-        while (i < glob.length) {
-            when (val c = glob[i]) {
-                '*' -> {
-                    val isDouble = i + 1 < glob.length && glob[i + 1] == '*'
+    private fun toRegex(glob: String): Regex {
+        val anchored = glob.startsWith('/')
+        val body = glob.replace('\\', '/').let { g ->
+            val esc = StringBuilder()
+            var i = 0
+            while (i < g.length) {
+                val c = g[i]
+                if (c == '*') {
+                    val isDouble = (i + 1 < g.length && g[i + 1] == '*')
                     if (isDouble) {
-                        // consume the second '*'
+                        esc.append(".*")
                         i += 2
-                        // swallow one optional following slash for nicer authoring of "**/foo"
-                        if (i < glob.length && glob[i] == '/') i += 1
-                        // '**' => any depth (including empty), across directories
-                        sb.append(".*")
                     } else {
-                        // '*' => any chars except '/'
-                        sb.append("[^/]*")
+                        esc.append("[^/]*")
                         i += 1
                     }
+                    continue
                 }
-                '?' -> { sb.append("[^/]"); i += 1 }
-                else -> { sb.append(Regex.escape(c.toString())); i += 1 }
+                if (c == '?') {
+                    esc.append("[^/]"); i += 1; continue
+                }
+                if ("\\.[]{}()+-^$|".indexOf(c) >= 0) esc.append('\\')
+                esc.append(c)
+                i += 1
             }
+            esc.toString()
         }
-
-        // Build final regex:
-        // - We always match against a normalized path that starts with '/'.
-        // - If pattern is anchored (started with '/'), require it from the start.
-        // - Otherwise allow arbitrary leading directories (suffix match).
-        val prefix = if (anchored) "^/" else "^/(?:.*?/)?"
-        val pattern = "$prefix$sb$"
-        return Regex(pattern)
+        val prefix = if (anchored) "^" else ".*?"
+        val suffix = "$"
+        return Regex(prefix + body + suffix)
     }
 }
 
-// -------- XML + FS helpers shared by audits --------
+// -------------------- XML parsing --------------------
 
 /**
- * Parses an XML file and returns a DOM Document.
- *
- * @param file The XML file to parse
- * @return Parsed XML Document
- * @throws Exception if file cannot be read or parsed
+ * Parse an XML file into a DOM Document with secure defaults.
+ * Throws the underlying exception to let audits fail fast on real errors.
  */
 internal fun xml(file: File): Document {
-    val dbf = DocumentBuilderFactory.newInstance()
-    dbf.isNamespaceAware = false
-    val db = dbf.newDocumentBuilder()
-    file.inputStream().use { return db.parse(it) }
+    val dbf = DocumentBuilderFactory.newInstance().apply {
+        try {
+            setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+        } catch (_: Exception) {
+            // ignore if not supported
+        }
+        isNamespaceAware = true
+        isXIncludeAware = false
+        isExpandEntityReferences = false
+    }
+    file.inputStream().use { ins ->
+        return dbf.newDocumentBuilder().parse(ins)
+    }
 }
 
+// -------------------- Source scanning --------------------
+
 /**
- * Scans and counts Kotlin and Java source files in standard Android module directories.
- *
- * Searches in: src/main, src/debug, src/release, src/test, src/androidTest
- *
- * @param moduleDir The module root directory containing src/ folder
- * @return Total count of .kt and .java files found
+ * Count Kotlin/Java source files under src/ ** of the given module.
+ * Used for tolerance math in Detekt/Lint audits.
  */
 internal fun scanSourceFiles(moduleDir: File): Int {
-    val root = moduleDir.toPath()
-    val patterns = listOf(
-        root.resolve("src").resolve("main"),
-        root.resolve("src").resolve("debug"),
-        root.resolve("src").resolve("release"),
-        root.resolve("src").resolve("test"),
-        root.resolve("src").resolve("androidTest")
-    )
+    val src = File(moduleDir, "src")
+    if (!src.exists()) return 0
     var count = 0
-    patterns.filter { Files.exists(it) }.forEach { base ->
-        Files.walk(base).use { stream ->
-            count += stream.filter { p ->
-                val name = p.fileName?.toString()?.lowercase() ?: return@filter false
-                name.endsWith(".kt") || name.endsWith(".java")
-            }.count().toInt()
+    src.walkTopDown().forEach { f ->
+        if (f.isFile) {
+            val n = f.name.lowercase()
+            if (n.endsWith(".kt") || n.endsWith(".java")) count++
         }
     }
     return count
 }
 
-/**
- * Extracts a rule ID from an audit message.
- *
- * First attempts to parse a bracketed rule ID from the start of the message.
- * Falls back to detecting known rule types by content matching.
- *
- * @param message The audit message to parse
- * @return The extracted rule ID or "Unknown" if no rule can be identified
- */
-fun extractRuleIdFromMessage(message: String): String {
-    val m = Regex("^\\[([^]]+)]").find(message)
-    if (m != null) return m.groupValues[1]
-    return when {
-        message.contains("ForbiddenImport", true) -> "ForbiddenImport"
-        message.contains("ForbiddenMethodCall", true) -> "ForbiddenMethodCall"
-        message.contains("RequireHarnessAnnotationOnTests", true) -> "RequireHarnessAnnotationOnTests"
-        else -> "Unknown"
-    }
-}
+// -------------------- Kotlin/Java header parsing --------------------
 
 /**
- * Reads and parses the header section of a Kotlin or Java source file.
+ * Parsed header information from a Kotlin/Java source file.
  *
- * Extracts package declaration, import statements, and top-level class/interface/object declarations.
- *
- * @param file The source file to parse
- * @return Header object containing parsed information
- */
-fun readHeader(file: File): Header {
-    val lines = file.readLines()
-    var pkg: String? = null
-    var pkgLine: Int? = null
-    val imports = LinkedHashSet<String>()
-    val decls = mutableListOf<Pair<String, Int>>()
-
-    val pkgRe = Regex("^\\s*package\\s+([A-Za-z0-9_.]+)")
-    val importRe = Regex("^\\s*import\\s+([A-Za-z0-9_.]+)")
-    val ktDeclRe =
-        Regex("^\\s*(?:public|internal|private|protected)?\\s*(?:data\\s+)?(?:enum\\s+)?(?:class|interface|object)\\s+([A-Za-z0-9_]+)")
-    val javaDeclRe =
-        Regex("^\\s*(?:public|protected|private|abstract|final|static\\s+)*\\s*(?:class|interface|enum)\\s+([A-Za-z0-9_]+)")
-
-    lines.forEachIndexed { idx, raw ->
-        val line = raw.trim()
-        if (pkg == null) {
-            pkgRe.find(line)?.let {
-                pkg = it.groupValues[1]
-                pkgLine = idx + 1
-            }
-        }
-        importRe.find(line)?.let { imports += it.groupValues[1] }
-        ktDeclRe.find(line)?.let { decls += it.groupValues[1] to (idx + 1) }
-        javaDeclRe.find(line)?.let { decls += it.groupValues[1] to (idx + 1) }
-    }
-    return Header(pkg, pkgLine, imports, decls)
-}
-
-/**
- * Contains parsed header information from a source file.
- *
- * @property pkg The package name declared in the file, null if no package declaration
- * @property pkgLine The line number (1-based) where the package declaration was found
- * @property imports Set of imported fully qualified class names
- * @property classDecls List of top-level class/interface/object declarations with their line numbers (1-based)
+ * @param pkg package name if declared
+ * @param pkgLine line number (1-based) of the package declaration
+ * @param imports set of fully-qualified imports (as written)
+ * @param classDecls list of top-level class/object/interface names with their line numbers (1-based)
  */
 data class Header(
     val pkg: String?,
@@ -239,3 +138,74 @@ data class Header(
     val imports: Set<String>,
     val classDecls: List<Pair<String, Int>>
 )
+
+/**
+ * Fast, line-based header reader—no full parsing. Safe for both Kotlin and Java.
+ * Note: avoids control-flow (continue/break) from inside lambdas.
+ */
+internal fun readHeader(file: File): Header {
+    val lines = file.readLines()
+    var pkg: String? = null
+    var pkgLine: Int? = null
+    val imports = linkedSetOf<String>()
+    val decls = mutableListOf<Pair<String, Int>>()
+
+    val rePkg = Regex("""^\s*package\s+([A-Za-z_][A-Za-z0-9_\.]*)""")
+    val reImport = Regex("""^\s*import\s+([A-Za-z_][A-Za-z0-9_\.]*(?:\.\*)?)""")
+    val reDecl = Regex("""^\s*(?:class|interface|object)\s+([A-Za-z_][A-Za-z0-9_]*)""")
+
+    for ((idx, rawLine) in lines.withIndex()) {
+        val lineNo = idx + 1
+        val line = rawLine.trim()
+
+        if (pkg == null) {
+            val m = rePkg.find(line)
+            if (m != null) {
+                pkg = m.groupValues[1]
+                pkgLine = lineNo
+                continue
+            }
+        }
+
+        val mImport = reImport.find(line)
+        if (mImport != null) {
+            imports += mImport.groupValues[1]
+            continue
+        }
+
+        val mDecl = reDecl.find(line)
+        if (mDecl != null) {
+            decls += mDecl.groupValues[1] to lineNo
+            continue
+        }
+
+        // Stop early if we passed typical header region (heuristic)
+        if (lineNo > 400) break
+    }
+    return Header(pkg, pkgLine, imports, decls)
+}
+
+// -------------------- Path normalization helpers --------------------
+
+/**
+ * Return a module-relative, normalized path (forward slashes, no leading slash).
+ * Falls back to a normalized input if the file cannot be relativized.
+ */
+fun moduleRelativePath(moduleDir: File, file: File): String {
+    return try {
+        val base = moduleDir.canonicalFile
+        val target = if (file.isAbsolute) file.canonicalFile else File(base, file.path).canonicalFile
+        val basePath = base.path.replace('\\', '/')
+        val targetPath = target.path.replace('\\', '/')
+        if (targetPath.startsWith(basePath)) {
+            targetPath.substring(basePath.length).trimStart('/')
+        } else {
+            targetPath.trimStart('/')
+        }
+    } catch (_: Throwable) {
+        file.path.replace('\\', '/').trimStart('/')
+    }
+}
+
+/** Overload for raw strings. */
+fun moduleRelativePath(moduleDir: File, path: String): String = moduleRelativePath(moduleDir, File(path))

@@ -36,6 +36,8 @@ class HarnessReuseAudit(
     // ---- configuration (immutable, normalized) ----
 
     private val whitelist = WhitelistMatcher(whitelistPatterns)
+    // Keep raw patterns to support the `..*` FQCN shorthand (any subpackage/class).
+    private val rawWhitelist: List<String> = whitelistPatterns.toList()
 
     private val canonicalSimpleNames: Set<String> by lazy {
         (this@HarnessReuseAudit.dataHelpers + this@HarnessReuseAudit.syncHelpers + this@HarnessReuseAudit.uiHelpers + this@HarnessReuseAudit.crossHelpers).map { it.substringAfterLast('.') }
@@ -94,7 +96,7 @@ class HarnessReuseAudit(
                     val area = areaForPackage(pkg) ?: return@forEach // default/no area => skip Rule A
 
 // Skip if any import is whitelisted
-                    if (header.imports.any { whitelist.matchesFqcnOrSymbol(it) }) return@forEach
+                    if (header.imports.any { isWhitelistedImport(it) }) return@forEach
 
                     val areaFqcns = areaHelperSet(area)
                     val hasAreaHelper = header.imports.any { it in areaFqcns }
@@ -147,6 +149,19 @@ class HarnessReuseAudit(
     }
 
 // ---------- helpers ----------
+
+    /**
+     * Accepts both WhitelistMatcher’s native FQCN matching and the shorthand pattern
+     * form `"com.example.legacy..*"` meaning “anything under this package (any depth)”.
+     */
+    private fun isWhitelistedImport(fqcn: String): Boolean {
+        if (whitelist.matchesFqcnOrSymbol(fqcn)) return true
+        for (pat in rawWhitelist) {
+            val i = pat.indexOf("..*")
+            if (i >= 0 && fqcn.startsWith(pat.substring(0, i))) return true
+        }
+        return false
+    }
 
     private fun areaForPackage(pkg: String): Area? {
         val base = "$rootNamespace."

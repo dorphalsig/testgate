@@ -28,6 +28,27 @@ class TestGatePlugin : Plugin<Project> {
         registerAuditWiring(project)
     }
 
+    private fun Project.registerFixturesAudit() {
+        val audit = FixturesAudit(
+            module = name,
+            moduleDir = layout.projectDirectory.asFile,
+            tolerancePercent = (findProperty("testgate.fixtures.tolerancePercent") as String?)?.toInt(),
+            minBytes = (findProperty("testgate.fixtures.minBytes") as String?)?.toInt() ?: 256,
+            maxBytes = (findProperty("testgate.fixtures.maxBytes") as String?)?.toInt() ?: 8192,
+            whitelistPatterns = getCsvProperty("testgate.fixtures.whitelist.patterns"),
+            logger = logger
+        )
+        val task = tasks.register("runFixturesAudit") {
+            group = "verification"
+            description = "Runs TestGate Fixtures audit (presence & size)."
+            doLast {
+                audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
+            }
+        }
+        tasks.matching { it.name == "check" }.configureEach { finalizedBy(task) }
+    }
+
+
     /**
      * Registers the TestStackPolicyAudit and wires it to relevant test tasks.
      *
@@ -38,18 +59,16 @@ class TestGatePlugin : Plugin<Project> {
      */
     fun Project.registerTestStackAudit() {
         val allowFiles = getCsvProperty("testgate.stack.allowlist.files")
-        val rules = getCsvProperty("testgate.stack.mainDispatcherRules")
         val predecessors = listOf("testDebugUnitTest", "test")
 
         val auditTask = tasks.register("testStackPolicyAudit") {
             doLast {
                 val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
-                TestStackPolicyAudit(
+                TestStackAudit(
                     module = name,
                     moduleDir = layout.projectDirectory.asFile,
                     logger = logger,
-                    allowlistFiles = allowFiles,
-                    mainDispatcherRuleFqcns = rules
+                    whitelistPaths = allowFiles,
                 ).check(callback)
             }
         }
@@ -286,6 +305,7 @@ class TestGatePlugin : Plugin<Project> {
             registerSqlFtsAudit()
             registerStructureAudit()
             registerTestStackAudit()
+            registerFixturesAudit()
         }
     }
 }

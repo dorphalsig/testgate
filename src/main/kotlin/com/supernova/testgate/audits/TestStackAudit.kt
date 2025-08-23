@@ -43,6 +43,7 @@ class TestStackAudit(
     private val tolerancePercent = 0 // hardcoded as requested
 
     private val whitelistMatcher = WhitelistMatcher(whitelistPaths)
+    private val rawWhitelistPaths: List<String> = whitelistPaths
 
     // ---- Rules (constants) ----
     private val bannedImportExact = setOf("org.junit.Test")
@@ -96,7 +97,7 @@ class TestStackAudit(
 
         for (file in files) {
             val relPath = file.relativeTo(moduleDir).invariantPath()
-            if (whitelistMatcher.matchesPath(relPath)) {
+            if (isWhitelistedPath(relPath)) {
                 logger.debug("[$auditName] Skipping whitelisted file: $relPath")
                 continue
             }
@@ -199,6 +200,22 @@ class TestStackAudit(
     private fun File.invariantPath(): String =
         this.path.replace('\\', '/')
 
+    /**
+     * Path whitelist matcher with tolerant `**` semantics:
+     * treat `**` as “zero or more segments” (many glob engines allow zero).
+     * Falls back to prefix matching for patterns ending in `/ **`.
+     */
+    private fun isWhitelistedPath(relPath: String): Boolean {
+        if (whitelistMatcher.matchesPath(relPath)) return true
+        for (pat in rawWhitelistPaths) {
+            if (pat.contains("**")) {
+                val collapsed = pat.replace("/**/", "/")
+                val prefix = collapsed.removeSuffix("/**")
+                if (relPath.startsWith(prefix)) return true
+            }
+        }
+        return false
+    }
     private fun parseImportsWithLineNumbers(lines: List<String>): Map<String, Int> {
         val map = LinkedHashMap<String, Int>()
         for (i in lines.indices) {

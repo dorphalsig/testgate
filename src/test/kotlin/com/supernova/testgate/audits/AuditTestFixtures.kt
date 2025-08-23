@@ -13,10 +13,19 @@ fun detektCheckstyleXml(filePath: String, entries: List<CheckstyleEntry>): Strin
         """.trimIndent()
     )
     entries.forEach { e ->
-        append("\n    <error severity=\"${e.severity}\" line=\"${e.line}\" message=\"${e.message}\" source=\"detekt\"/>")
+        // Real detekt writes source="detekt.RuleId" (e.g., detekt.ForbiddenImport).
+        // Extract the rule id from a bracketed prefix in the message when present.
+        val ruleId = Regex("""\[(?:detekt\.)?([A-Za-z0-9_.-]+)]""")
+            .find(e.message)
+            ?.groupValues?.get(1)
+        val source = if (ruleId != null) "detekt.$ruleId" else "detekt"
+        append(
+            "\n    <error severity=\"${e.severity}\" line=\"${e.line}\" message=\"${e.message}\" source=\"$source\"/>"
+        )
     }
     append("\n  </file>\n</checkstyle>")
 }
+
 
 data class LintEntry(val id: String, val severity: String, val file: String, val line: Int)
 

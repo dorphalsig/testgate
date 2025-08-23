@@ -80,8 +80,8 @@ class AndroidLintAudit(
             for (j in 0 until locs.length) {
                 val loc = locs.item(j) as? Element ?: continue
                 val file = loc.getAttribute("file")
-                val normalized = file.replace('\\', '/')
-                if (whitelist.matchesPath(normalized)) continue
+                val rel = moduleRelativePath(moduleDir, file)
+                if (whitelist.matchesPath(rel)) continue
                 val line = loc.getAttribute("line").toIntOrNull()
                 out += Finding(
                     type = type,
