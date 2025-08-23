@@ -42,8 +42,6 @@ class TestGatePlugin : Plugin<Project> {
         val predecessors = listOf("testDebugUnitTest", "test")
 
         val auditTask = tasks.register("testStackPolicyAudit") {
-            group = "verification"
-            description = "Runs TestGate TestStackPolicy audit (tolerance=0)."
             doLast {
                 val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
                 TestStackPolicyAudit(
@@ -60,6 +58,10 @@ class TestGatePlugin : Plugin<Project> {
             it.finalizedBy(auditTask)
         }
     }
+
+
+
+
 
     private fun registerGlobalReportService(project: Project): Provider<TestGateReportService> {
         val gradle = project.gradle

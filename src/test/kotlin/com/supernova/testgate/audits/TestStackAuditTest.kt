@@ -1,206 +1,239 @@
+// File: src/test/kotlin/com/supernova/testgate/audits/TestStackAuditTest.kt
 package com.supernova.testgate.audits
 
+import org.gradle.api.logging.Logger
 import org.gradle.api.logging.Logging
-import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-class TestStackPolicyAuditTest {
+class TestStackAuditTest {
 
-    private val logger = Logging.getLogger(TestStackPolicyAuditTest::class.java)
+    private val logger: Logger = Logging.getLogger(TestStackAuditTest::class.java)
 
-    // ---------- helpers ----------
-
-    private fun tempModule(): File = createTempDir(prefix = "module").apply {
-        // Only create folders as needed by tests
-    }
-
-    private fun write(root: File, relPath: String, content: String) {
-        val f = File(root, relPath)
-        f.parentFile.mkdirs()
-        f.writeText(content)
-    }
-
-    private fun runAudit(
-        moduleDir: File,
-        allowFiles: List<String> = emptyList(),
-        rules: List<String> = emptyList()
-    ): AuditResult {
-        var result: AuditResult? = null
-        TestStackPolicyAudit(
+    @Test
+    fun `passes when no JVM test dir`(@TempDir tmp: File) {
+        val moduleDir = File(tmp, "m").apply { mkdirs() }
+        val audit = TestStackAudit(
             module = "m",
             moduleDir = moduleDir,
-            logger = logger,
-            allowlistFiles = allowFiles,
-            mainDispatcherRuleFqcns = rules
-        ).check { r -> result = r }
-        return result!!
-    }
+            whitelistPaths = emptyList(),
+            logger = logger
+        )
+        lateinit var result: AuditResult
+        audit.check { result = it }
 
-    // ---------- tests ----------
-
-    @Test
-    fun `PASS when there is no src_test_kotlin directory`() {
-        val root = tempModule()
-        // No 'src/test/kotlin' created
-        val result = runAudit(root)
         assertEquals(Status.PASS, result.status)
-        assertTrue(result.findings.isEmpty())
+        assertEquals(0, result.findingCount)
     }
 
     @Test
-    fun `FAIL - scheduler API without runTest`() {
-        val root = tempModule()
-        write(
-            root, "src/test/kotlin/com/example/BadScheduler.kt",
-            """
-            package com.example
-            import kotlinx.coroutines.test.StandardTestDispatcher
-            class BadScheduler { val d = StandardTestDispatcher() }
+    fun `banned import - junit4 Test`(@TempDir tmp: File) {
+        val src = writeKt(
+            tmp, "src/test/kotlin/p/J4.kt", """
+            package p
+            import org.junit.Test
+            class J4
             """.trimIndent()
         )
+        val result = runAudit(tmp)
 
-        val result = runAudit(root)
         assertEquals(Status.FAIL, result.status)
-        assertEquals(1, result.findings.size)
-        assertTrue(result.findings.first().message.contains("Scheduler APIs"))
+        assertTrue(result.findings.any { it.filePath?.endsWith("J4.kt") == true && it.type == "BANNED_IMPORT" })
     }
 
     @Test
-    fun `PASS - scheduler API present but runTest exists in file`() {
-        val root = tempModule()
-        write(
-            root, "src/test/kotlin/com/example/SchedulerOk.kt",
-            """
-            package com.example
-            import kotlinx.coroutines.test.runTest
-            import kotlinx.coroutines.test.UnconfinedTestDispatcher
-            class SchedulerOk {
-                fun t() = runTest {
-                    val d = UnconfinedTestDispatcher()
-                }
-            }
+    fun `banned import - androidx test prefix`(@TempDir tmp: File) {
+        writeKt(
+            tmp, "src/test/kotlin/p/AX.kt", """
+            package p
+            import androidx.test.core.app.ApplicationProvider
+            class AX
             """.trimIndent()
         )
+        val result = runAudit(tmp)
 
-        val result = runAudit(root)
-        assertEquals(Status.PASS, result.status)
-        assertTrue(result.findings.isEmpty())
-    }
-
-    @Test
-    fun `FAIL - main dispatcher used without any configured rule`() {
-        val root = tempModule()
-        write(
-            root, "src/test/kotlin/com/example/MainNoRule.kt",
-            """
-            package com.example
-            import kotlinx.coroutines.Dispatchers
-            class MainNoRule { fun x() { val m = Dispatchers.Main } }
-            """.trimIndent()
-        )
-
-        val result = runAudit(root)
         assertEquals(Status.FAIL, result.status)
-        assertEquals(1, result.findings.size)
-        assertTrue(result.findings.first().message.contains("Main dispatcher"))
+        assertTrue(result.findings.any { it.type == "BANNED_IMPORT" })
     }
 
     @Test
-    fun `PASS - main dispatcher with configured rule referenced by simple name`() {
-        val root = tempModule()
-        write(
-            root, "src/test/kotlin/com/example/MainWithRuleSimple.kt",
-            """
-            package com.example
-            import kotlinx.coroutines.Dispatchers
-            import com.example.testing.MainDispatcherRule
-            class MainWithRuleSimple {
-                private val rule = MainDispatcherRule()
-                fun x() { val m = Dispatchers.Main }
+    fun `banned annotation - Ignore`(@TempDir tmp: File) {
+        writeKt(
+            tmp, "src/test/kotlin/p/Ig.kt", """
+            package p
+            @Ignore
+            class Ig
+            """.trimIndent()
+        )
+        val result = runAudit(tmp)
+
+        assertEquals(Status.FAIL, result.status)
+        assertTrue(result.findings.any { it.type == "BANNED_ANNOTATION" })
+    }
+
+    @Test
+    fun `banned annotation - Disabled`(@TempDir tmp: File) {
+        writeKt(
+            tmp, "src/test/kotlin/p/Dis.kt", """
+            package p
+            @Disabled
+            class Dis
+            """.trimIndent()
+        )
+        val result = runAudit(tmp)
+
+        assertEquals(Status.FAIL, result.status)
+        assertTrue(result.findings.any { it.type == "BANNED_ANNOTATION" })
+    }
+
+    @Test
+    fun `banned annotation - DisabledOnOs`(@TempDir tmp: File) {
+        writeKt(
+            tmp, "src/test/kotlin/p/DisOnOs.kt", """
+            package p
+            import org.junit.jupiter.api.condition.DisabledOnOs
+            import org.junit.jupiter.api.condition.OS
+            class DOnOs { @DisabledOnOs(OS.LINUX) fun t() {} }
+            """.trimIndent()
+        )
+        val result = runAudit(tmp)
+
+        assertEquals(Status.FAIL, result.status)
+        assertTrue(result.findings.any { it.type == "BANNED_ANNOTATION" })
+    }
+
+    @Test
+    fun `coroutines misuse - runBlocking`() = runWithTmp { tmp ->
+        writeKt(
+            tmp, "src/test/kotlin/p/RB.kt", """
+            package p
+            import kotlinx.coroutines.runBlocking
+            fun f() = runBlocking { }
+            """.trimIndent()
+        )
+        val result = runAudit(tmp)
+
+        assertEquals(Status.FAIL, result.status)
+        assertTrue(result.findings.any { it.type == "COROUTINES_MISUSE" && it.message.contains("runTest") })
+    }
+
+    @Test
+    fun `coroutines misuse - Thread sleep`() = runWithTmp { tmp ->
+        writeKt(
+            tmp, "src/test/kotlin/p/TS.kt", """
+            package p
+            fun g() { Thread.sleep(10) }
+            """.trimIndent()
+        )
+        val result = runAudit(tmp)
+
+        assertEquals(Status.FAIL, result.status)
+        assertTrue(result.findings.any { it.type == "COROUTINES_MISUSE" && it.message.contains("Thread.sleep") })
+    }
+
+    @Test
+    fun `scheduler apis without runTest`() = runWithTmp { tmp ->
+        writeKt(
+            tmp, "src/test/kotlin/p/Sched.kt", """
+            package p
+            fun tick() { advanceUntilIdle() }
+            """.trimIndent()
+        )
+        val result = runAudit(tmp)
+
+        assertEquals(Status.FAIL, result.status)
+        assertTrue(result.findings.any { it.type == "COROUTINES_MISUSE" && it.message.contains("Scheduler APIs") })
+    }
+
+    @Test
+    fun `scheduler apis with runTest passes`() = runWithTmp { tmp ->
+        writeKt(
+            tmp, "src/test/kotlin/p/SchedOk.kt", """
+            package p
+            fun ok() {
+                runTest { advanceUntilIdle() }
             }
             """.trimIndent()
         )
+        val result = runAudit(tmp)
 
-        val result = runAudit(
-            root,
-            rules = listOf("com.example.testing.MainDispatcherRule")
-        )
         assertEquals(Status.PASS, result.status)
-        assertTrue(result.findings.isEmpty())
+        assertEquals(0, result.findingCount)
     }
 
     @Test
-    fun `PASS - main dispatcher with configured rule referenced by FQCN only`() {
-        val root = tempModule()
-        write(
-            root, "src/test/kotlin/com/example/MainWithRuleFqcn.kt",
-            """
-            package com.example
+    fun `missing main dispatcher rule`() = runWithTmp { tmp ->
+        writeKt(
+            tmp, "src/test/kotlin/p/MainMissing.kt", """
+            package p
             import kotlinx.coroutines.Dispatchers
-            class MainWithRuleFqcn {
-                private val rule = com.example.testing.MainDispatcherRule()
-                fun x() { val m = Dispatchers.Main }
-            }
+            fun h() = Dispatchers.Main
             """.trimIndent()
         )
+        val result = runAudit(tmp)
 
-        val result = runAudit(
-            root,
-            rules = listOf("com.example.testing.MainDispatcherRule")
-        )
-        assertEquals(Status.PASS, result.status)
-        assertTrue(result.findings.isEmpty())
+        assertEquals(Status.FAIL, result.status)
+        assertTrue(result.findings.any { it.type == "MISSING_MAIN_DISPATCHER_RULE" })
     }
 
     @Test
-    fun `PASS - allowlisted file is skipped entirely`() {
-        val root = tempModule()
-        write(
-            root, "src/test/kotlin/legacy/NeedsIgnore.kt",
-            """
+    fun `mentions MainDispatcherRule passes`() = runWithTmp { tmp ->
+        writeKt(
+            tmp, "src/test/kotlin/p/MainOk.kt", """
+            package p
+            import kotlinx.coroutines.Dispatchers
+            val rule = MainDispatcherRule()
+            fun h() = Dispatchers.Main
+            """.trimIndent()
+        )
+        val result = runAudit(tmp)
+
+        assertEquals(Status.PASS, result.status)
+        assertEquals(0, result.findingCount)
+    }
+
+    @Test
+    fun `whitelist path skips offending file`() = runWithTmp { tmp ->
+        writeKt(
+            tmp, "src/test/kotlin/legacy/Old.kt", """
             package legacy
-            import kotlinx.coroutines.Dispatchers
-            class NeedsIgnore { fun x() { val m = Dispatchers.Main } }
+            import org.junit.Test
+            class Old
             """.trimIndent()
         )
+        val result = runAudit(tmp, whitelist = listOf("src/test/kotlin/**/legacy/**"))
 
-        val result = runAudit(
-            root,
-            allowFiles = listOf("**/legacy/**")
-        )
         assertEquals(Status.PASS, result.status)
-        assertTrue(result.findings.isEmpty())
+        assertEquals(0, result.findingCount)
     }
 
-    @Test
-    fun `FAIL - both issues in one file yield two findings`() {
-        val root = tempModule()
-        write(
-            root, "src/test/kotlin/com/example/TwoFindings.kt",
-            """
-            package com.example
-            import kotlinx.coroutines.Dispatchers
-            import kotlinx.coroutines.test.StandardTestDispatcher
-            class TwoFindings {
-                val d = StandardTestDispatcher() // scheduler API
-                fun x() { val m = Dispatchers.Main } // main dispatcher
-            }
-            """.trimIndent()
+    // -------------- helpers --------------
+
+    private fun runWithTmp(block: (File) -> Unit) {
+        val tmp = createTempDir(prefix = "audit")
+        try { block(tmp) } finally { tmp.deleteRecursively() }
+    }
+
+    private fun runAudit(tmp: File, whitelist: List<String> = emptyList()): AuditResult {
+        val moduleDir = File(tmp, "m").apply { mkdirs() }
+        val audit = TestStackAudit(
+            module = "m",
+            moduleDir = moduleDir,
+            whitelistPaths = whitelist,
+            logger = logger
         )
-
-        val result = runAudit(root)
-        assertEquals(Status.FAIL, result.status)
-        assertEquals(2, result.findings.size)
-        assertTrue(result.findings.any { it.message.contains("Scheduler APIs") })
-        assertTrue(result.findings.any { it.message.contains("Main dispatcher") })
+        lateinit var result: AuditResult
+        audit.check { result = it }
+        return result
     }
 
-    @Test
-    fun `THROWS - missing moduleDir`() {
-        val missing = File("___definitely_not_here___/x")
-        assertThrows(IllegalStateException::class.java) {
-            runAudit(missing)
-        }
+    private fun writeKt(root: File, relPath: String, content: String): File {
+        val f = File(File(root, "m"), relPath)
+        f.parentFile.mkdirs()
+        f.writeText(content)
+        return f
     }
 }
