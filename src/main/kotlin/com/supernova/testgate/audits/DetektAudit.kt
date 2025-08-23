@@ -21,14 +21,12 @@ class DetektAudit(
     private val reportXml: File,
     private val moduleDir: File,
     private val tolerancePercent: Int?,
-    whitelistPatterns: List<String>,
-    hardFailRuleIdsProperty: List<String>?,
+    whitelistPatterns: List<String> = emptyList(),
+    hardFailRuleIds: List<String> = emptyList(),
     private val logger: Logger
 ) : Audit {
 
     private val whitelist = WhitelistMatcher(whitelistPatterns)
-    private val hardFailRuleIds: Set<String> = (hardFailRuleIdsProperty?.ifEmpty { null }
-        ?: listOf("ForbiddenImport", "ForbiddenMethodCall", "RequireHarnessAnnotationOnTests")).toSet()
 
     override fun check(callback: (AuditResult) -> Unit) {
         val doc = parseReport(reportXml)

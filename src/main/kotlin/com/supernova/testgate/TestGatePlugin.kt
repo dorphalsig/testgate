@@ -1,16 +1,10 @@
 package com.supernova.testgate
 
-import com.supernova.testgate.audits.AuditResult
-import com.supernova.testgate.audits.CompilationAudit
-import com.supernova.testgate.audits.DetektAudit
-import org.gradle.api.GradleException
+import com.supernova.testgate.audits.*
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.api.internal.artifacts.dsl.dependencies.DependenciesExtensionModule.module
 import org.gradle.api.logging.StandardOutputListener
 import org.gradle.api.provider.Provider
-import org.gradle.internal.extensions.stdlib.uncheckedCast
-import org.gradle.kotlin.dsl.get
 
 /**
  * Core plugin applied to EACH subproject (root not required).
@@ -32,6 +26,39 @@ class TestGatePlugin : Plugin<Project> {
 
         // Placeholder: where each audit's hidden tasks will be wired later.
         registerAuditWiring(project)
+    }
+
+    /**
+     * Registers the TestStackPolicyAudit and wires it to relevant test tasks.
+     *
+     * Uses project.extensions.extraProperties["isAndroid"] to branch.
+     * Reads:
+     *  - testgate.stack.allowlist.files
+     *  - testgate.stack.mainDispatcherRules
+     */
+    fun Project.registerTestStackAudit() {
+        val allowFiles = getCsvProperty("testgate.stack.allowlist.files")
+        val rules = getCsvProperty("testgate.stack.mainDispatcherRules")
+        val predecessors = listOf("testDebugUnitTest", "test")
+
+        val auditTask = tasks.register("testStackPolicyAudit") {
+            group = "verification"
+            description = "Runs TestGate TestStackPolicy audit (tolerance=0)."
+            doLast {
+                val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
+                TestStackPolicyAudit(
+                    module = name,
+                    moduleDir = layout.projectDirectory.asFile,
+                    logger = logger,
+                    allowlistFiles = allowFiles,
+                    mainDispatcherRuleFqcns = rules
+                ).check(callback)
+            }
+        }
+
+        tasks.filter { predecessors.contains(it.name) }.forEach {
+            it.finalizedBy(auditTask)
+        }
     }
 
     private fun registerGlobalReportService(project: Project): Provider<TestGateReportService> {
@@ -58,7 +85,8 @@ class TestGatePlugin : Plugin<Project> {
                     moduleDir = layout.projectDirectory.asFile,
                     tolerancePercent = findProperty("testgate.detekt.tolerancePercent") as Int?,
                     whitelistPatterns = getCsvProperty("testgate.detekt.whitelist.patterns"),
-                    hardFailRuleIdsProperty = getCsvProperty("testgate.detekt.hardFailRuleIds"),
+                    hardFailRuleIds = getCsvProperty("testgate.detekt.hardFailRuleIds"),
+                    // ?:listOf("ForbiddenImport", "ForbiddenMethodCall", "RequireHarnessAnnotationOnTests"))
                     logger = logger
                 )
                 audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
@@ -66,6 +94,90 @@ class TestGatePlugin : Plugin<Project> {
         }
 
         tasks.getByName("detekt").finalizedBy(task)
+    }
+
+    internal fun Project.registerHarnessReuseAudit() {
+
+        fun default(vararg fqcns: String) = fqcns.toList()
+        val dataHelpers = getCsvProperty(
+            "testgate.harness.helpers.data", listOf(
+                "com.supernova.testing.BaseRoomTest",
+                "com.supernova.testing.RoomTestDbBuilder",
+                "com.supernova.testing.DbAssertionHelpers"
+            )
+        ).toSet()
+
+        val syncHelpers = (getCsvProperty("testgate.harness.helpers.sync").ifEmpty {
+            default(
+                "com.supernova.testing.BaseSyncTest",
+                "com.supernova.testing.JsonFixtureLoader",
+                "com.supernova.testing.MockWebServerExtensions",
+                "com.supernova.testing.SyncScenarioFactory"
+            )
+        }).toSet()
+
+        val uiHelpers = (getCsvProperty("testgate.harness.helpers.ui").ifEmpty {
+            default(
+                "com.supernova.testing.UiStateTestHelpers",
+                "com.supernova.testing.PreviewFactories"
+            )
+        }).toSet()
+
+        val crossHelpers = (getCsvProperty("testgate.harness.helpers.cross").ifEmpty {
+            default(
+                "com.supernova.testing.TestEntityFactory",
+                "com.supernova.testing.CoroutineTestUtils"
+            )
+        }).toSet()
+
+        val whitelist = getCsvProperty("testgate.harness.whitelist")
+
+        val audit = HarnessReuseAudit(
+            module = name,
+            moduleDir = layout.projectDirectory.asFile,
+            logger = logger,
+            dataHelpers = dataHelpers,
+            syncHelpers = syncHelpers,
+            uiHelpers = uiHelpers,
+            crossHelpers = crossHelpers,
+            whitelistPatterns = whitelist
+        )
+
+        val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
+        audit.check(callback)
+    }
+
+    fun Project.registerSqlFtsAudit() {
+        val tolerancePercent = (findProperty("testgate.sqlFts.tolerancePercent") as String?)?.toIntOrNull()
+        val whitelistPatterns = getCsvProperty("testgate.sqlFts.whitelist")
+
+
+        val task = tasks.register("auditsSqlFts") {
+            doLast {
+                val audit = SqlFtsAudit(
+                    module = name,
+                    moduleDir = layout.projectDirectory.asFile,
+                    tolerancePercent = tolerancePercent,
+                    whitelistPatterns = whitelistPatterns,
+                    logger = logger
+                )
+
+                audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
+            }
+        }
+
+
+// Run audit after JVM compile tasks only
+        tasks.matching { t -> isJvmCompileTaskName(t.name) }.configureEach {
+            finalizedBy(task)
+        }
+    }
+
+
+    private fun isJvmCompileTaskName(name: String): Boolean {
+        val n = name.lowercase()
+        if (!n.startsWith("compile")) return false
+        return n.endsWith("kotlin") || n.endsWith("java") || n.contains("kotlin") || n.contains("java")
     }
 
     private fun Project.registerAndroidLintAudit() {
@@ -78,7 +190,7 @@ class TestGatePlugin : Plugin<Project> {
                     moduleDir = layout.projectDirectory.asFile,
                     tolerancePercent = findProperty("testgate.detekt.tolerancePercent") as Int?,
                     whitelistPatterns = getCsvProperty("testgate.detekt.whitelist.patterns"),
-                    hardFailRuleIdsProperty = getCsvProperty("testgate.detekt.hardFailRuleIds"),
+                    hardFailRuleIds = getCsvProperty("testgate.detekt.hardFailRuleIds"),
                     logger = logger
                 )
                 audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
@@ -88,8 +200,8 @@ class TestGatePlugin : Plugin<Project> {
         tasks.getByName("lintDebug").finalizedBy(task)
     }
 
-    fun Project.getCsvProperty(key: String): List<String> =
-        (findProperty(key) as? String)?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+    fun Project.getCsvProperty(key: String, default: List<String> = emptyList()): List<String> =
+        (findProperty(key) as? String)?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: default
 
 
     fun Project.registerCompilationAuditWiring() {
@@ -136,6 +248,20 @@ class TestGatePlugin : Plugin<Project> {
         }
     }
 
+    fun Project.registerStructureAudit() {
+        val audit = StructureAudit(
+            module = name,
+            moduleDir = layout.projectDirectory.asFile,
+            logger = logger
+        )
+        tasks.register("auditsStructure") {
+            doLast {
+                audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
+            }
+        }
+    }
+
+
     /**
      * Intentionally a NO-OP for now.
      *
@@ -150,7 +276,14 @@ class TestGatePlugin : Plugin<Project> {
      *          .onAuditResult(auditResult)
      */
     private fun registerAuditWiring(project: Project) {
-        project.registerDetektAudit()
-        project.registerAndroidLintAudit()
+        with(project) {
+            registerCompilationAuditWiring()
+            registerDetektAudit()
+            registerAndroidLintAudit()
+            registerHarnessReuseAudit()
+            registerSqlFtsAudit()
+            registerStructureAudit()
+            registerTestStackAudit()
+        }
     }
 }
