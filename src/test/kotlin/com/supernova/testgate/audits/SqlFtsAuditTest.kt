@@ -1,6 +1,5 @@
 package com.supernova.testgate.audits
 
-import com.supernova.testgate.audits.sql.SqlFtsAudit
 import org.gradle.api.logging.Logging
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -27,8 +26,6 @@ class SqlFtsAuditTest {
             moduleDir = dir,
             tolerancePercent = 0,
             whitelistPatterns = emptyList(),
-            banRawQuery = true,
-            banComplexQuery = true,
             logger = logger
         )
         val result = run(audit)
@@ -132,8 +129,6 @@ class SqlFtsAuditTest {
         moduleDir = dir,
         tolerancePercent = 0,
         whitelistPatterns = whitelist,
-        banRawQuery = true,
-        banComplexQuery = true,
         logger = logger
     )
 

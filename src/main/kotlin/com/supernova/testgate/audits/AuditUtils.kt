@@ -6,51 +6,121 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Document
 
 /**
- * Per-tool whitelist matcher. Accepts FQCNs and wildcards like `.*` and `..*`.
+ * Matches file paths or FQCNs against whitelist patterns.
  *
- * Converts dot-separated patterns to regex patterns that can match against
- * normalized paths and fully qualified class names.
+ * Supported wildcards (path-glob style):
+ *  - `*`  : any chars within a single segment (no '/')
+ *  - `**` : any depth across directories (including zero segments)
+ *  - `?`  : any single char within a segment
  *
- * @param patterns List of whitelist patterns supporting wildcards:
- *   - `.*` matches single path segment
- *   - `..*` matches any depth including empty
- *   - Regular FQCNs match exactly
+ * Legacy FQCN-style wildcards are also supported:
+ *  - `.*`  : single segment
+ *  - `..*` : any depth (including zero)
+ *
+ * Notes:
+ *  - Paths are normalized to forward slashes.
+ *  - If a pattern starts with '/', it’s treated as anchored to the start of the path.
+ *    Otherwise it can match as a suffix (i.e., anywhere in the path).
  */
 class WhitelistMatcher(patterns: Collection<String>) {
+
     private val regexes: List<Regex> = patterns
-        .mapNotNull { it.trim().takeIf { s -> s.isNotEmpty() } }
-        .map { token ->
-            var p = token.replace('.', '/')
-            p = p.replace(Regex("/+"), "/")
-            p = p.replace("..*", "/**")
-            p = p.replace(".*", "/*")
-            val escaped = Regex.escape(p)
-                .replace("\\/\\*\\*", "(?:/.*)?") // /** â†' any depth (including empty)
-                .replace("\\/\\*", "/[^/]*")       // /*  â†' single segment
-                .replace("\\*", "[^/]*")             // *   â†' segment chars
-            ("^(.*/)?$escaped$").toRegex()
+        .asSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .flatMap { compilePatternVariants(it) }
+        .toList()
+
+    /**
+     * Checks if a file system path matches any whitelist pattern.
+     * @param path A file path; Windows backslashes are accepted.
+     */
+    fun matchesPath(path: String?): Boolean {
+        if (path.isNullOrBlank()) return false
+        val norm = normalizePath(path)
+        return regexes.any { it.matches(norm) }
+    }
+
+    /**
+     * Checks if a fully-qualified class/symbol matches any whitelist pattern.
+     * Matches both dot-form (e.g., com.foo.Bar) and slash-form.
+     */
+    fun matchesFqcnOrSymbol(value: String?): Boolean {
+        if (value.isNullOrBlank()) return false
+        val dot = value
+        val slash = value.replace('.', '/')
+        val normSlash = normalizePath(slash)
+        return regexes.any { rx -> rx.matches(dot) || rx.matches(normSlash) }
+    }
+
+    // --- internals ---
+
+    private fun normalizePath(p: String): String {
+        val s = p.replace('\\', '/')
+        // ensure leading slash so our anchored regexes are consistent
+        return if (s.startsWith('/')) s else "/$s"
+    }
+
+    private fun compilePatternVariants(raw: String): Sequence<Regex> {
+        // Normalize path separators in the raw pattern
+        val pat = raw.replace('\\', '/')
+
+        val variants = mutableListOf<Pair<String, Boolean>>() // (pattern, anchored?)
+        val anchored = pat.startsWith('/')
+
+        // Variant 1: treat the pattern as path-style as-is
+        variants += pat to anchored
+
+        // Variant 2: if it looks like an FQCN (no slashes but contains dots), support legacy wildcards
+        val looksLikeFqcn = !pat.contains('/') && pat.contains('.')
+        if (looksLikeFqcn) {
+            var fq = pat
+            // legacy wildcards: "..*" => "/**", ".*" => "/*", then convert dots to slashes
+            fq = fq.replace("..*", "/**")
+            fq = fq.replace(".*", "/*")
+            fq = fq.replace('.', '/')
+            variants += (fq to false) // not anchored by default
         }
 
-    /**
-     * Checks if a fully qualified class name or symbol matches any whitelist pattern.
-     *
-     * @param value The FQCN or symbol to check (dots will be normalized to slashes)
-     * @return true if the value matches any pattern, false otherwise or if value is null
-     */
-    fun matchesFqcnOrSymbol(value: String?): Boolean =
-        value?.let { v -> regexes.any { it.matches(normalize(v)) } } ?: false
+        return variants.asSequence().map { (v, isAnchored) -> globToRegex(v, isAnchored) }
+    }
 
-    /**
-     * Checks if a file path matches any whitelist pattern.
-     *
-     * @param path The file path to check (backslashes will be normalized to forward slashes)
-     * @return true if the path matches any pattern, false otherwise or if path is null
-     */
-    fun matchesPath(path: String?): Boolean =
-        path?.let { p -> regexes.any { it.matches(normalizePath(p)) } } ?: false
+    private fun globToRegex(globIn: String, anchored: Boolean): Regex {
+        // Remove a single leading slash; we'll add our own anchors
+        val glob = if (globIn.startsWith('/')) globIn.drop(1) else globIn
 
-    private fun normalize(v: String): String = v.replace('.', '/').trim()
-    private fun normalizePath(p: String): String = p.replace('\\', '/').trim()
+        val sb = StringBuilder()
+        var i = 0
+        while (i < glob.length) {
+            when (val c = glob[i]) {
+                '*' -> {
+                    val isDouble = i + 1 < glob.length && glob[i + 1] == '*'
+                    if (isDouble) {
+                        // consume the second '*'
+                        i += 2
+                        // swallow one optional following slash for nicer authoring of "**/foo"
+                        if (i < glob.length && glob[i] == '/') i += 1
+                        // '**' => any depth (including empty), across directories
+                        sb.append(".*")
+                    } else {
+                        // '*' => any chars except '/'
+                        sb.append("[^/]*")
+                        i += 1
+                    }
+                }
+                '?' -> { sb.append("[^/]"); i += 1 }
+                else -> { sb.append(Regex.escape(c.toString())); i += 1 }
+            }
+        }
+
+        // Build final regex:
+        // - We always match against a normalized path that starts with '/'.
+        // - If pattern is anchored (started with '/'), require it from the start.
+        // - Otherwise allow arbitrary leading directories (suffix match).
+        val prefix = if (anchored) "^/" else "^/(?:.*?/)?"
+        val pattern = "$prefix$sb$"
+        return Regex(pattern)
+    }
 }
 
 // -------- XML + FS helpers shared by audits --------

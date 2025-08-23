@@ -42,6 +42,8 @@ class TestStackAudit(
     private val auditName = "auditsStack"
     private val tolerancePercent = 0 // hardcoded as requested
 
+    private val whitelistMatcher = WhitelistMatcher(whitelistPaths)
+
     // ---- Rules (constants) ----
     private val bannedImportExact = setOf("org.junit.Test")
     private val bannedImportPrefixes = listOf(
@@ -53,7 +55,7 @@ class TestStackAudit(
     // Ban both JUnit4 @Ignore and all JUnit5 @Disabled* variants (incl. conditional ones)
     private val bannedAnnotationRegex = Regex("""@\s*(?:org\.junit\.[\w.]*\.)?(?:Ignore|Disabled\w*)\b""")
 
-    private val runBlockingRegex = Regex("""\brunBlocking\s*\(""")
+    private val runBlockingRegex = Regex("""\brunBlocking\s*(?:<[^>]*>)?\s*(?:\(|\{)""")
     private val threadSleepRegex = Regex("""\bThread\.sleep\s*\(""")
     private val schedulerTokens = listOf(
         "advanceUntilIdle(",
@@ -64,7 +66,7 @@ class TestStackAudit(
         "UnconfinedTestDispatcher",
         "TestScope"
     )
-    private val runTestRegex = Regex("""\brunTest\s*\(""")
+    private val runTestRegex = Regex("""\brunTest\s*(?:<[^>]*>)?\s*(?:\(|\{)""")
     private val usesMainRegex = Regex("""Dispatchers\.Main\b|viewModelScope\b""")
     private val mainRuleHint = "MainDispatcherRule" // simple, project-agnostic
 
@@ -94,7 +96,7 @@ class TestStackAudit(
 
         for (file in files) {
             val relPath = file.relativeTo(moduleDir).invariantPath()
-            if (matchesAnyGlob(relPath, whitelistPaths)) {
+            if (whitelistMatcher.matchesPath(relPath)) {
                 logger.debug("[$auditName] Skipping whitelisted file: $relPath")
                 continue
             }
@@ -196,44 +198,6 @@ class TestStackAudit(
 
     private fun File.invariantPath(): String =
         this.path.replace('\\', '/')
-
-    /** Very small glob: supports '**' (any depth) and '*' (within a path segment). */
-    private fun matchesAnyGlob(path: String, globs: List<String>): Boolean {
-        if (globs.isEmpty()) return false
-        return globs.any { glob -> simpleGlobMatch(path, glob) }
-    }
-
-    private fun simpleGlobMatch(path: String, glob: String): Boolean {
-        val p = path.replace('\\', '/')
-        val g = glob.replace('\\', '/')
-        // Fast paths
-        if (g == "**" || g == "*") return true
-        // Convert to a cheap regex
-        val sb = StringBuilder()
-        var i = 0
-        while (i < g.length) {
-            val c = g[i]
-            when {
-                c == '*' && i + 1 < g.length && g[i + 1] == '*' -> {
-                    sb.append(".*")
-                    i += 2
-                }
-                c == '*' -> {
-                    sb.append("[^/]*")
-                    i++
-                }
-                ".[]{}()+-^$|\\".contains(c) -> {
-                    sb.append('\\').append(c)
-                    i++
-                }
-                else -> {
-                    sb.append(c)
-                    i++
-                }
-            }
-        }
-        return Regex("^$sb$").matches(p)
-    }
 
     private fun parseImportsWithLineNumbers(lines: List<String>): Map<String, Int> {
         val map = LinkedHashMap<String, Int>()

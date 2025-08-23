@@ -3,7 +3,7 @@ agp = "8.10.0"
 moshi = "1.15.2"
 
 # Testing
-junit5 = "5.13.4"
+junit = "5.13.4"
 mockk = "1.14.5"
 detekt = "1.23.8"
 
@@ -11,5 +11,7 @@ detekt = "1.23.8"
 moshi-kotlin = { module = "com.squareup.moshi:moshi-kotlin", version.ref = "moshi" }
 gradle = { module = "com.android.tools.build:gradle", version.ref = "agp" }
 detekt-gradle-plugin = { module = "io.gitlab.arturbosch.detekt:detekt-gradle-plugin", version.ref = "detekt" }
-junit5 = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit5" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }

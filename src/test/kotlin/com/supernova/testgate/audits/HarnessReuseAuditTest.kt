@@ -45,8 +45,6 @@ class HarnessReuseAuditTest {
             module = "app",
             moduleDir = tmp,
             logger = mockk<Logger>(relaxed = true),
-            rootNamespace = "com.supernova",
-            harnessPackage = "com.supernova.testing",
             dataHelpers = data,
             syncHelpers = sync,
             uiHelpers = ui,

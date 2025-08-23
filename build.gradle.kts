@@ -31,10 +31,14 @@ dependencies {
     compileOnly(libs.gradle)                // com.android.tools.build:gradle:<agp version from catalog>
     compileOnly(libs.detekt.gradle.plugin)  // detekt-gradle-plugin:<detekt version from catalog>
 
-
-
     testImplementation(gradleApi())
     testImplementation(gradleTestKit())
-    testImplementation(libs.junit5)
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
+
+    tasks.withType<Test>().configureEach {
+        useJUnitPlatform()
+    }
 }

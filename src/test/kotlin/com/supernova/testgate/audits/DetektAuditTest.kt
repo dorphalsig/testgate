@@ -27,7 +27,7 @@ class DetektAuditTest {
             moduleDir = tmp,
             tolerancePercent = 10,
             whitelistPatterns = emptyList(),
-            hardFailRuleIdsProperty = null,
+            hardFailRuleIds = listOf("ForbiddenImport"),
             logger = Logging.getLogger("DetektAuditTest")
         ).check { result = it }
 
@@ -57,7 +57,7 @@ class DetektAuditTest {
             moduleDir = tmp,
             tolerancePercent = 5,
             whitelistPatterns = emptyList(),
-            hardFailRuleIdsProperty = listOf("ForbiddenImport", "ForbiddenMethodCall", "RequireHarnessAnnotationOnTests"),
+            hardFailRuleIds = listOf("ForbiddenImport", "ForbiddenMethodCall", "RequireHarnessAnnotationOnTests"),
             logger = Logging.getLogger("DetektAuditTest")
         ).check { result = it }
 
@@ -86,7 +86,7 @@ class DetektAuditTest {
             moduleDir = tmp,
             tolerancePercent = 0,
             whitelistPatterns = listOf("**/SkipMe.java"),
-            hardFailRuleIdsProperty = null,
+            hardFailRuleIds = emptyList(),
             logger = Logging.getLogger("DetektAuditTest")
         ).check { result = it }
 
@@ -105,7 +105,7 @@ class DetektAuditTest {
             moduleDir = tmp,
             tolerancePercent = 10,
             whitelistPatterns = emptyList(),
-            hardFailRuleIdsProperty = null,
+            hardFailRuleIds = emptyList(),
             logger = Logging.getLogger("DetektAuditTest")
         )
         val ex = assertThrows(org.gradle.api.GradleException::class.java) {
