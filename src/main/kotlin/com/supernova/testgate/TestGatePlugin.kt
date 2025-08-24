@@ -3,8 +3,10 @@ package com.supernova.testgate
 import com.supernova.testgate.audits.*
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.Task
 import org.gradle.api.logging.StandardOutputListener
 import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.TaskCollection
 
 /**
  * Core plugin applied to EACH subproject (root not required).
@@ -13,6 +15,22 @@ import org.gradle.api.provider.Provider
  * - Leaves a placeholder where audits will be wired via finalizedBy.
  */
 class TestGatePlugin : Plugin<Project> {
+
+
+    val Project.testTasks get() = tasks.matching { listOf("testDebugUnitTest", "test").contains(name) }
+
+    val Project.compilationTasks
+        get() = tasks.matching {
+            name == ("compileDebugKotlin") ||
+                    name == ("compileDebugJavaWithJavac") ||
+                    name.startsWith("kaptDebug") ||
+                    name.startsWith("kspDebug")
+        }
+
+
+    fun Project.getCsvProperty(key: String, default: List<String> = emptyList()): List<String> =
+        (findProperty(key) as? String)?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: default
+
 
     override fun apply(project: Project) {
         val serviceProvider = registerGlobalReportService(project)
@@ -39,13 +57,11 @@ class TestGatePlugin : Plugin<Project> {
             logger = logger
         )
         val task = tasks.register("runFixturesAudit") {
-            group = "verification"
-            description = "Runs TestGate Fixtures audit (presence & size)."
             doLast {
                 audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
             }
         }
-        tasks.matching { it.name == "check" }.configureEach { finalizedBy(task) }
+        compilationTasks.configureEach { finalizedBy(task) }
     }
 
 
@@ -59,7 +75,6 @@ class TestGatePlugin : Plugin<Project> {
      */
     fun Project.registerTestStackAudit() {
         val allowFiles = getCsvProperty("testgate.stack.allowlist.files")
-        val predecessors = listOf("testDebugUnitTest", "test")
 
         val auditTask = tasks.register("testStackPolicyAudit") {
             doLast {
@@ -73,13 +88,10 @@ class TestGatePlugin : Plugin<Project> {
             }
         }
 
-        tasks.filter { predecessors.contains(it.name) }.forEach {
-            it.finalizedBy(auditTask)
+        compilationTasks.configureEach {
+            finalizedBy(auditTask)
         }
     }
-
-
-
 
 
     private fun registerGlobalReportService(project: Project): Provider<TestGateReportService> {
@@ -114,12 +126,13 @@ class TestGatePlugin : Plugin<Project> {
             }
         }
 
-        tasks.getByName("detekt").finalizedBy(task)
+        tasks.matching { name == "detekt" }.configureEach {
+            finalizedBy(task)
+        }
     }
 
-    internal fun Project.registerHarnessReuseAudit() {
+    private fun Project.registerHarnessReuseAudit() {
 
-        fun default(vararg fqcns: String) = fqcns.toList()
         val dataHelpers = getCsvProperty(
             "testgate.harness.helpers.data", listOf(
                 "com.supernova.testing.BaseRoomTest",
@@ -128,47 +141,51 @@ class TestGatePlugin : Plugin<Project> {
             )
         ).toSet()
 
-        val syncHelpers = (getCsvProperty("testgate.harness.helpers.sync").ifEmpty {
-            default(
+        val syncHelpers = getCsvProperty(
+            "testgate.harness.helpers.sync", listOf(
                 "com.supernova.testing.BaseSyncTest",
                 "com.supernova.testing.JsonFixtureLoader",
                 "com.supernova.testing.MockWebServerExtensions",
                 "com.supernova.testing.SyncScenarioFactory"
             )
-        }).toSet()
+        )
 
-        val uiHelpers = (getCsvProperty("testgate.harness.helpers.ui").ifEmpty {
-            default(
+        val uiHelpers = getCsvProperty(
+            "testgate.harness.helpers.ui", listOf(
                 "com.supernova.testing.UiStateTestHelpers",
                 "com.supernova.testing.PreviewFactories"
             )
-        }).toSet()
+        )
 
-        val crossHelpers = (getCsvProperty("testgate.harness.helpers.cross").ifEmpty {
-            default(
+        val crossHelpers = getCsvProperty(
+            "testgate.harness.helpers.cross", listOf(
                 "com.supernova.testing.TestEntityFactory",
                 "com.supernova.testing.CoroutineTestUtils"
             )
-        }).toSet()
+        )
 
         val whitelist = getCsvProperty("testgate.harness.whitelist")
 
-        val audit = HarnessReuseAudit(
-            module = name,
-            moduleDir = layout.projectDirectory.asFile,
-            logger = logger,
-            dataHelpers = dataHelpers,
-            syncHelpers = syncHelpers,
-            uiHelpers = uiHelpers,
-            crossHelpers = crossHelpers,
-            whitelistPatterns = whitelist
-        )
+        tasks.register("harnessReuseAudit") {
+            val audit = HarnessReuseAudit(
+                module = name,
+                moduleDir = layout.projectDirectory.asFile,
+                logger = logger,
+                dataHelpers = dataHelpers,
+                syncHelpers = syncHelpers,
+                uiHelpers = uiHelpers,
+                crossHelpers = crossHelpers,
+                whitelistPatterns = whitelist
+            )
 
-        val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
-        audit.check(callback)
+            val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
+            audit.check(callback)
+        }
+        compilationTasks.configureEach { finalizedBy("harnessReuseAudit") }
+
     }
 
-    fun Project.registerSqlFtsAudit() {
+    private fun Project.registerSqlFtsAudit() {
         val tolerancePercent = (findProperty("testgate.sqlFts.tolerancePercent") as String?)?.toIntOrNull()
         val whitelistPatterns = getCsvProperty("testgate.sqlFts.whitelist")
 
@@ -187,18 +204,9 @@ class TestGatePlugin : Plugin<Project> {
             }
         }
 
-
-// Run audit after JVM compile tasks only
-        tasks.matching { t -> isJvmCompileTaskName(t.name) }.configureEach {
+        compilationTasks.configureEach {
             finalizedBy(task)
         }
-    }
-
-
-    private fun isJvmCompileTaskName(name: String): Boolean {
-        val n = name.lowercase()
-        if (!n.startsWith("compile")) return false
-        return n.endsWith("kotlin") || n.endsWith("java") || n.contains("kotlin") || n.contains("java")
     }
 
     private fun Project.registerAndroidLintAudit() {
@@ -221,30 +229,20 @@ class TestGatePlugin : Plugin<Project> {
         tasks.getByName("lintDebug").finalizedBy(task)
     }
 
-    fun Project.getCsvProperty(key: String, default: List<String> = emptyList()): List<String> =
-        (findProperty(key) as? String)?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: default
-
-
-    fun Project.registerCompilationAuditWiring() {
-        // Strict audit: any compiler error fails the module.
+    private fun Project.registerCompilationAuditWiring() {
         val audit = CompilationAudit(
             module = name,
             moduleDir = layout.projectDirectory.asFile
         )
 
-        // Configure ONLY the tasks we care about (Debug).
-        // We assume non-parallel builds, so per-task hook/unhook is safe & simple.
-        tasks.configureEach {
-            val n = name
-            val isDebugCompile =
-                n == "compileDebugKotlin" ||
-                        n == "compileDebugJavaWithJavac" ||
-                        n.startsWith("kaptDebug") ||
-                        n.startsWith("kspDebug")
+        val auditTask = tasks.register("compilationAudit") {
+            doLast {
+                val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
+                audit.check(callback)
+            }
+        }
 
-            if (!isDebugCompile) return@configureEach
-
-            // One listener per task so we can cleanly unhook in the finalizer.
+        compilationTasks.configureEach {
             val stderrListener = StandardOutputListener { chunk ->
                 audit.append(chunk as String)
             }
@@ -254,39 +252,59 @@ class TestGatePlugin : Plugin<Project> {
                 logging.addStandardErrorListener(stderrListener)
             }
 
-            // Per-task finalizer ensures we always unhook + parse, even if the task fails.
-            val finalizerName = "${n}CompilationAuditFinalize"
-            val finalizer = tasks.register(finalizerName) {
-                // Unhook first, then parse & report.
+            val cleanup = tasks.register("${name}Cleanup") {
                 doFirst {
                     logging.removeStandardErrorListener(stderrListener)
                     audit.unregisterCapture()
-                    val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
-                    audit.check(callback)
                 }
             }
-            finalizedBy(finalizer)
+            finalizedBy(cleanup, auditTask)
         }
     }
 
-    fun Project.registerStructureAudit() {
-        val audit = StructureAudit(
-            module = name,
-            moduleDir = layout.projectDirectory.asFile,
-            logger = logger
-        )
-        tasks.register("auditsStructure") {
+    private fun Project.registerStructureAudit() {
+        val task = tasks.register("structureAudit") {
             doLast {
+                val audit = StructureAudit(
+                    module = name,
+                    moduleDir = layout.projectDirectory.asFile,
+                    logger = logger
+                )
                 audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
             }
         }
+        compilationTasks.configureEach {
+            finalizedBy(task)
+        }
+
+    }
+
+    private fun Project.registerTestsAudit() {
+        // Collect all JVM unit-test tasks for this module
+        val unitTests = tasks.withType(org.gradle.api.tasks.testing.Test::class.java)
+
+        // Task that runs AFTER unit tests and evaluates JUnit XML
+        val task = tasks.register("testGateAuditsTests") {
+            doLast {
+                unitTests.forEach { testTask ->
+                    val xmlDir = testTask.reports.junitXml.outputLocation.get().asFile
+                    val audit = TestsAudit(
+                        module = project.name,
+                        resultsDir = xmlDir,
+                        tolerancePercent = (findProperty("testgate.tests.tolerancePercent") as? String)?.toIntOrNull(),
+                        whitelistPatterns = getCsvProperty("testgate.tests.whitelist.patterns"),
+                        logger = logger
+                    )
+                    audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
+                }
+            }
+        }
+        testTasks.configureEach { finalizedBy(task) }
     }
 
 
+
     /**
-     * Intentionally a NO-OP for now.
-     *
-     * Later:
      * - Register hidden audit tasks (e.g. testgateForbiddenImport).
      * - Wire them with finalizedBy to parent tasks:
      *    JVM:    tasks.named("check") { finalizedBy(hiddenAuditTask) }
@@ -306,6 +324,7 @@ class TestGatePlugin : Plugin<Project> {
             registerStructureAudit()
             registerTestStackAudit()
             registerFixturesAudit()
+            registerTestsAudit()
         }
     }
 }
