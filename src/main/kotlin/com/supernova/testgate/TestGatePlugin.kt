@@ -1,5 +1,6 @@
 package com.supernova.testgate
 
+import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask
 import com.supernova.testgate.audits.*
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -7,6 +8,7 @@ import org.gradle.api.Task
 import org.gradle.api.logging.StandardOutputListener
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.TaskCollection
+import org.gradle.api.tasks.testing.Test
 
 /**
  * Core plugin applied to EACH subproject (root not required).
@@ -265,10 +267,18 @@ class TestGatePlugin : Plugin<Project> {
     private fun Project.registerStructureAudit() {
         val task = tasks.register("structureAudit") {
             doLast {
+                val instrumentedAllowList = getCsvProperty(
+                    "testgate.structureAudit.instrumentedAllowList",
+                    listOf(
+                        "com.supernova.data.db.fts.**",
+                        "com.supernova.security.securestorage.**"
+                    ),
+                )
                 val audit = StructureAudit(
                     module = name,
                     moduleDir = layout.projectDirectory.asFile,
-                    logger = logger
+                    logger = logger,
+                    instrumentedAllowlist = instrumentedAllowList,
                 )
                 audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
             }
@@ -281,7 +291,8 @@ class TestGatePlugin : Plugin<Project> {
 
     private fun Project.registerTestsAudit() {
         // Collect all JVM unit-test tasks for this module
-        val unitTests = tasks.withType(org.gradle.api.tasks.testing.Test::class.java)
+        @Suppress("UNCHECKED_CAST")
+        val unitTests = testTasks as Collection<Test>
 
         // Task that runs AFTER unit tests and evaluates JUnit XML
         val task = tasks.register("testGateAuditsTests") {
@@ -302,6 +313,47 @@ class TestGatePlugin : Plugin<Project> {
         testTasks.configureEach { finalizedBy(task) }
     }
 
+    private fun Project.registerInstrumentedTestsAudit() {
+        // Collect all JVM unit-test tasks for this module
+
+        // Task that runs AFTER unit tests and evaluates JUnit XML
+        val task = tasks.register("testGateAuditsTests") {
+            doLast {
+                val testTask = tasks.findByName("connectedDebugAndroidTest") as DeviceProviderInstrumentTestTask
+                val xmlDir = layout.buildDirectory.dir("outputs/reports/androidTests/connected").get().asFile
+                val audit = TestsAudit(
+                    module = project.name,
+                    resultsDir = xmlDir,
+                    tolerancePercent = (findProperty("testgate.instrumentedTests.tolerancePercent") as? String)?.toIntOrNull(),
+                    whitelistPatterns = getCsvProperty("testgate.instrumentedTests.whitelist.patterns"),
+                    logger = logger
+                )
+                audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
+
+            }
+        }
+        testTasks.configureEach { finalizedBy(task) }
+    }
+
+    // inside your per-module registration
+    private fun Project.registerCoverageBranchesAudit() {
+        val task = tasks.register("coverageBranchesAudit") {
+            doLast {
+                val audit = CoverageBranchesAudit(
+                    module = name,
+                    reportXml = layout.buildDirectory.file("reports/jacoco/testDebugUnitTestReport/testDebugUnitTestReport.xml")
+                        .get().asFile,
+                    moduleDir = layout.projectDirectory.asFile,
+                    thresholdPercent = (findProperty("testgate.coverage.branches.minPercent") as? String)?.toIntOrNull(),
+                    whitelistPatterns = getCsvProperty("testgate.coverage.whitelist.patterns"),
+                )
+                // ensure the JaCoCo report task runs before this
+                audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
+            }
+        }
+        tasks.matching { name.lowercase().contains("jacoco") }.configureEach { finalizedBy(task) }
+
+    }
 
 
     /**
@@ -325,6 +377,8 @@ class TestGatePlugin : Plugin<Project> {
             registerTestStackAudit()
             registerFixturesAudit()
             registerTestsAudit()
+            registerCoverageBranchesAudit()
+            registerInstrumentedTestsAudit()
         }
     }
 }

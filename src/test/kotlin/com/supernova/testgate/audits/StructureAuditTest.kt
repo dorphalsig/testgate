@@ -26,15 +26,40 @@ class StructureAuditTest {
     }
 
     @Test
-    fun bannedSourceSet_androidTest_fails() {
+    fun androidTest_allowed_directory_passes() {
         val root = tempModule()
+        // Presence of androidTest dir is allowed now
         mkdir(root, "src/androidTest")
         write(root, "build.gradle", "dependencies {}")
 
         val result = runAudit(root)
-        assertEquals(Status.FAIL, result.status)
-        assertEquals("BannedSourceSet", result.findings.first().type)
+        assertEquals(Status.PASS, result.status)
+        assertTrue(result.findings.none { it.type == "BannedSourceSet" })
     }
+
+
+    @Test
+    fun androidTest_scope_disallowed_import_fails() {
+        val root = tempModule()
+        write(
+            root,
+            "src/androidTest/kotlin/ScopeTest.kt",
+            """
+        package com.supernova.app
+        import com.supernova.data.db.ProgramDao
+        import org.junit.Test
+        class ScopeTest {
+            @Test fun dummy() { }
+        }
+        """.trimIndent()
+        )
+        write(root, "build.gradle", "dependencies {}")
+
+        val result = runAudit(root)
+        assertEquals(Status.FAIL, result.status)
+        assertTrue(result.findings.any { it.type == "InstrumentedScopeBan" })
+    }
+
 
     @Test
     fun bannedSourceSet_sharedTest_fails() {
@@ -102,6 +127,10 @@ class StructureAuditTest {
         val audit = StructureAudit(
             module = "app",
             moduleDir = root,
+            instrumentedAllowlist =  listOf(
+                "com.supernova.data.db.fts.**",
+                "com.supernova.security.securestorage.**"
+            ),
             logger = null
         )
         var captured: AuditResult? = null
