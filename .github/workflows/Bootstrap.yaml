@@ -54,8 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           # Force-add the JAR in case *.jar is ignored
-          git add -f gradle/wrapper/gradle-wrapper.jar
-          git add gradle/wrapper/gradle-wrapper.properties gradlew gradlew.bat
+          git add -f gradle/wrapper/*
           if git diff --cached --quiet; then
             echo "No changes."
             exit 0
