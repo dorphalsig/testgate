@@ -1,0 +1,30 @@
+name: Build JAR
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gradle/actions/setup-gradle@v3
+      - name: Build
+        run: ./gradlew build
+      - name: Publish to GitHub Packages
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./gradlew publish
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: testgate-jar
+          path: build/libs/*.jar
