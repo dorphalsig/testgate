@@ -8,7 +8,7 @@ gradlePlugin {
     plugins {
         register("testGate") {
             id = "com.supernova.testgate"
-            implementationClass = "com.supernova.testgate.TestGatePlugin"
+            implementationClass = "com.supernova.testgate.convention.TestGateConventionPlugin"
         }
     }
 }
@@ -16,12 +16,6 @@ gradlePlugin {
 
 group = "com.supernova"
 version = "0.1.0-SNAPSHOT"
-
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(17))
-    }
-}
 
 dependencies {
     implementation(gradleApi())
@@ -40,5 +34,18 @@ dependencies {
 
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
+    }
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/${System.getenv("GITHUB_REPOSITORY")}")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR")
+                password = System.getenv("GITHUB_TOKEN")
+            }
+        }
     }
 }
