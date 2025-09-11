@@ -223,7 +223,7 @@ class TestGatePlugin : Plugin<Project> {
             }
         }
 
-        tasks.getByName("lintDebug").finalizedBy(task)
+        tasks.matching { name == "lintDebug" }.configureEach { finalizedBy(task) }
     }
 
     private fun Project.registerCompilationAuditWiring() {
