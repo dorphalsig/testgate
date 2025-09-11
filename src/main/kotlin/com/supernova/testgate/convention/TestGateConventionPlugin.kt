@@ -2,6 +2,7 @@ package com.supernova.testgate.convention
 
 import com.android.build.api.dsl.CommonExtension
 import com.android.build.api.variant.AndroidComponentsExtension
+import com.supernova.testgate.TestGatePlugin
 import io.gitlab.arturbosch.detekt.Detekt
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -40,7 +41,8 @@ class TestGateConventionPlugin : Plugin<Project> {
 
     // --- Apply baseline plugins ---------------------------------------------------------------
     private fun Project.applyPlugins() {
-        pluginManager.apply("com.supernova.testgate")
+        //pluginManager.apply("com.supernova.testgate")
+        plugins.apply(TestGatePlugin::class.java)
         (androidPlugins + kotlinPlugins).forEach { pid ->
             pluginManager.withPlugin(pid) {
                 pluginManager.apply("io.gitlab.arturbosch.detekt")
@@ -81,14 +83,24 @@ class TestGateConventionPlugin : Plugin<Project> {
     }
 
     private fun Project.wireCustomDetektRules() {
-        // Option A: consume a built JAR from a known path in the repo
-        // e.g., keep the jar at /tools/testgate-detekt.jar
+        // Prefer: add THIS plugin's jar to detekt's plugin classpath so our ruleset is discovered.
+        // Detekt looks up META-INF/services/io.gitlab.arturbosch.detekt.api.RuleSetProvider on its own classpath.
+        // Adding our plugin jar to the detektPlugins configuration exposes that service.
+        runCatching {
+            val url = this@TestGateConventionPlugin::class.java.protectionDomain.codeSource.location
+            val selfJar = File(url.toURI())
+            if (selfJar.exists()) {
+                dependencies.add("detektPlugins", files(selfJar))
+            }
+        }
+
+        // Fallback: if a prebuilt rules jar is kept under tools/, wire it too.
         val rulesJar = File(rootDir, "tools/testgate-detekt.jar")
         if (rulesJar.exists()) {
             dependencies.add("detektPlugins", files(rulesJar))
         }
 
-        // Option B (preferred if the rules live in the same build):
+        // Alternative if rules live in another included build/module:
         // dependencies.add("detektPlugins", project(":testgate-detekt"))
     }
 
@@ -162,7 +174,7 @@ class TestGateConventionPlugin : Plugin<Project> {
         testTaskName: String,
         variantLower: String,
         variant: String
-    ): TaskProvider<JacocoReport?> = tasks.register(reportTaskName, JacocoReport::class.java) {
+    ): TaskProvider<JacocoReport> = tasks.register(reportTaskName, JacocoReport::class.java) {
         // FIX: depend on the test task (not on itself)
         dependsOn(tasks.named(testTaskName))
         configureReports()
@@ -253,9 +265,10 @@ class TestGateConventionPlugin : Plugin<Project> {
     // --- Capture executed test tasks (for exact filtering in TestGate) ------------------------
     private fun Project.captureExecutedTestTasks() {
         // At execution time, record the exact test task names that run in this project
+        val project = this  // Capture the project reference
         gradle.taskGraph.whenReady {
             val executed = allTasks
-                .filter { it.project == this }
+                .filter { it.project == project }
                 .map { it.name }
                 .filter { name ->
                     name == "test" || name == "jvmTest" ||

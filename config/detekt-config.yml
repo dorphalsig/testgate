@@ -1,0 +1,20 @@
+# Minimal Detekt configuration enabling TestGate custom rules
+# See https://detekt.dev/docs/intro/configurations for details.
+
+# Enable our custom ruleset and rule
+# The rule set id must match TestGateRuleSetProvider.ruleSetId ("testgate")
+# Rule id must match the class name (RequireHarnessAnnotationOnTests)
+
+config:
+  validation: true
+
+build:
+  maxIssues: 0
+
+# Activate our ruleset and rule
+# Detekt treats unknown sections as potential rule sets; this will be picked up when our jar is on detektPlugins.
+
+testgate:
+  active: true
+  RequireHarnessAnnotationOnTests:
+    active: true

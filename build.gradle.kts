@@ -15,7 +15,7 @@ gradlePlugin {
 
 
 group = "com.supernova"
-version = "0.1.0-SNAPSHOT"
+version = "1.0"
 
 dependencies {
     implementation(gradleApi())
@@ -24,6 +24,8 @@ dependencies {
     // We reference these plugin classes in code; keep them compileOnly so consumers don’t get them transitively
     compileOnly(libs.gradle)                // com.android.tools.build:gradle:<agp version from catalog>
     compileOnly(libs.detekt.gradle.plugin)  // detekt-gradle-plugin:<detekt version from catalog>
+    // detekt custom rules API for our provider/rules
+    compileOnly(libs.detekt.api)
 
     testImplementation(gradleApi())
     testImplementation(gradleTestKit())
@@ -43,7 +45,7 @@ publishing {
             name = "GitHubPackages"
             url = uri("https://maven.pkg.github.com/${System.getenv("GITHUB_REPOSITORY")}")
             credentials {
-                username = System.getenv("GITHUB_ACTOR")
+                username = "VALUE_UNCHECKED"
                 password = System.getenv("GITHUB_TOKEN")
             }
         }

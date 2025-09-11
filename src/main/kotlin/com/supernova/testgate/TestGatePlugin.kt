@@ -317,7 +317,7 @@ class TestGatePlugin : Plugin<Project> {
         // Collect all JVM unit-test tasks for this module
 
         // Task that runs AFTER unit tests and evaluates JUnit XML
-        val task = tasks.register("testGateAuditsTests") {
+        val task = tasks.register("testGateInstrumentedAuditsTests") {
             doLast {
                 val testTask = tasks.findByName("connectedDebugAndroidTest") as DeviceProviderInstrumentTestTask
                 val xmlDir = layout.buildDirectory.dir("outputs/reports/androidTests/connected").get().asFile
