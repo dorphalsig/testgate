@@ -1,13 +1,10 @@
 package com.supernova.testgate
 
-import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask
 import com.supernova.testgate.audits.*
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.api.Task
 import org.gradle.api.logging.StandardOutputListener
 import org.gradle.api.provider.Provider
-import org.gradle.api.tasks.TaskCollection
 import org.gradle.api.tasks.testing.Test
 
 /**
@@ -55,8 +52,7 @@ class TestGatePlugin : Plugin<Project> {
             tolerancePercent = (findProperty("testgate.fixtures.tolerancePercent") as String?)?.toInt(),
             minBytes = (findProperty("testgate.fixtures.minBytes") as String?)?.toInt() ?: 256,
             maxBytes = (findProperty("testgate.fixtures.maxBytes") as String?)?.toInt() ?: 8192,
-            whitelistPatterns = getCsvProperty("testgate.fixtures.whitelist.patterns"),
-            logger = logger
+            whitelistPatterns = getCsvProperty("testgate.fixtures.whitelist.patterns")
         )
         val task = tasks.register("runFixturesAudit") {
             doLast {
@@ -215,13 +211,12 @@ class TestGatePlugin : Plugin<Project> {
 
         val task = tasks.register("lintDebugAudit") {
             doLast {
-                val audit = DetektAudit(
+                val audit = AndroidLintAudit(
                     module = name,
                     reportXml = layout.buildDirectory.file("reports/lint-results-debug.xml").get().asFile,
                     moduleDir = layout.projectDirectory.asFile,
-                    tolerancePercent = findProperty("testgate.detekt.tolerancePercent") as Int?,
-                    whitelistPatterns = getCsvProperty("testgate.detekt.whitelist.patterns"),
-                    hardFailRuleIds = getCsvProperty("testgate.detekt.hardFailRuleIds"),
+                    tolerancePercent = (findProperty("testgate.lint.tolerancePercent") as? String)?.toIntOrNull(),
+                    whitelistPatterns = getCsvProperty("testgate.lint.whitelist.patterns"),
                     logger = logger
                 )
                 audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
@@ -314,25 +309,33 @@ class TestGatePlugin : Plugin<Project> {
     }
 
     private fun Project.registerInstrumentedTestsAudit() {
-        // Collect all JVM unit-test tasks for this module
-
-        // Task that runs AFTER unit tests and evaluates JUnit XML
-        val task = tasks.register("testGateInstrumentedAuditsTests") {
-            doLast {
-                val testTask = tasks.findByName("connectedDebugAndroidTest") as DeviceProviderInstrumentTestTask
-                val xmlDir = layout.buildDirectory.dir("outputs/reports/androidTests/connected").get().asFile
-                val audit = TestsAudit(
-                    module = project.name,
-                    resultsDir = xmlDir,
-                    tolerancePercent = (findProperty("testgate.instrumentedTests.tolerancePercent") as? String)?.toIntOrNull(),
-                    whitelistPatterns = getCsvProperty("testgate.instrumentedTests.whitelist.patterns"),
-                    logger = logger
-                )
-                audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
-
+        // Wire only for Android modules
+        val wire: () -> Unit = {
+            val task = tasks.register("testGateInstrumentedAuditsTests") {
+                doLast {
+                    val xmlDir = layout.buildDirectory.dir("outputs/androidTest-results/connected").get().asFile
+                    val audit = TestsAudit(
+                        module = project.name,
+                        resultsDir = xmlDir,
+                        tolerancePercent = (findProperty("testgate.instrumentedTests.tolerancePercent") as? String)?.toIntOrNull(),
+                        whitelistPatterns = getCsvProperty("testgate.instrumentedTests.whitelist.patterns"),
+                        logger = logger
+                    )
+                    audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
+                }
             }
+
+            // Run the audit after any connected<Variant>AndroidTest task
+            tasks.matching { it.name.startsWith("connected") && it.name.endsWith("AndroidTest") }
+                .configureEach { finalizedBy(task) }
+
+            // Also after convention aliases instrumented<Variant>Test if present
+            tasks.matching { it.name.startsWith("instrumented") && it.name.endsWith("Test") }
+                .configureEach { finalizedBy(task) }
         }
-        testTasks.configureEach { finalizedBy(task) }
+
+        pluginManager.withPlugin("com.android.application") { wire() }
+        pluginManager.withPlugin("com.android.library") { wire() }
     }
 
     // inside your per-module registration

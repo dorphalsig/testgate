@@ -1,9 +1,9 @@
 package com.supernova.testgate.audits
 
+import org.w3c.dom.Document
 import java.io.File
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
-import org.w3c.dom.Document
 
 /**
  * Utility classes and helpers shared by TestGate audits.
@@ -150,8 +150,8 @@ internal fun readHeader(file: File): Header {
     val imports = linkedSetOf<String>()
     val decls = mutableListOf<Pair<String, Int>>()
 
-    val rePkg = Regex("""^\s*package\s+([A-Za-z_][A-Za-z0-9_\.]*)""")
-    val reImport = Regex("""^\s*import\s+([A-Za-z_][A-Za-z0-9_\.]*(?:\.\*)?)""")
+    val rePkg = Regex("""^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)""")
+    val reImport = Regex("""^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*(?:\.\*)?)""")
     val reDecl = Regex("""^\s*(?:class|interface|object)\s+([A-Za-z_][A-Za-z0-9_]*)""")
 
     for ((idx, rawLine) in lines.withIndex()) {

@@ -1,10 +1,9 @@
 package com.supernova.testgate.audits
 
 import java.io.File
-import java.nio.file.NoSuchFileException
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
-import org.gradle.api.logging.Logger
 
 /**
  * Audit 8) Fixtures (presence & size)
@@ -29,8 +28,7 @@ class FixturesAudit(
     private val tolerancePercent: Int? = 10,
     private val minBytes: Int = 256,
     private val maxBytes: Int = 8192,
-    private val whitelistPatterns: List<String> = emptyList(),
-    private val logger: Logger? = null
+    private val whitelistPatterns: List<String> = emptyList()
 ) : Audit {
 
     override fun check(callback: (AuditResult) -> Unit) {

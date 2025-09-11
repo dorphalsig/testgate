@@ -1,6 +1,7 @@
 package com.supernova.testgate.audits
 
-import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -40,8 +41,7 @@ class FixturesAuditTest {
             tolerancePercent = tolerance,
             minBytes = min,
             maxBytes = max,
-            whitelistPatterns = whitelist,
-            logger = null
+            whitelistPatterns = whitelist
         )
         var result: AuditResult? = null
         audit.check { ar -> result = ar }

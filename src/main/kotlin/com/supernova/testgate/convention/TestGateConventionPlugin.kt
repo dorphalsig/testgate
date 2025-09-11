@@ -9,7 +9,6 @@ import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.testing.Test
-import org.gradle.kotlin.dsl.maybeCreate
 import org.gradle.kotlin.dsl.withType
 import org.gradle.testing.jacoco.tasks.JacocoReport
 import java.io.File
@@ -55,6 +54,8 @@ class TestGateConventionPlugin : Plugin<Project> {
                 configureJUnitWiring()
                 // NEW: lightweight instrumentation aliases (safe, variant-aware)
                 configureAndroidInstrumentationTasks()
+                // Ensure instrumented tests run on JUnit 5 where possible
+                configureAndroidJUnit5ForInstrumentedTests()
                 captureExecutedTestTasks()
             }
         }
@@ -291,5 +292,38 @@ class TestGateConventionPlugin : Plugin<Project> {
     private fun Project.wireFinalizer(fromName: String, toName: String) {
         tasks.matching { it.name == fromName }.configureEach { finalizedBy(tasks.named(toName)) }
     }
-}
 
+    // --- Android JUnit 5 for Instrumented Tests ----------------------------------------------
+    /**
+     * Tries to configure Android instrumented tests to run on JUnit 5:
+     * - Applies the android-junit5 plugin when available (non-fatal if absent).
+     * - Ensures the instrumentation runner is set and adds the JUnit5 runnerBuilder argument.
+     * - Adds a minimal JUnit Jupiter dependency to androidTest to ensure APIs are present.
+     */
+    private fun Project.configureAndroidJUnit5ForInstrumentedTests() {
+        androidPlugins.forEach { pid ->
+            pluginManager.withPlugin(pid) {
+                // Try to apply the android-junit5 plugin if it can be resolved. Do not fail if missing.
+                runCatching { pluginManager.apply("de.mannodermaus.android-junit5") }
+                    .onFailure { logger.info("[TestGate] android-junit5 plugin not found; proceeding with manual setup") }
+
+                // Configure runner & builder
+                (extensions.findByName("android") as? CommonExtension<*, *, *, *, *, *>)?.let { android ->
+                    android.defaultConfig.apply {
+                        if (testInstrumentationRunner.isNullOrBlank()) {
+                            testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+                        }
+                        val args = testInstrumentationRunnerArguments
+                        if (!args.containsKey("runnerBuilder")) {
+                            args["runnerBuilder"] = "de.mannodermaus.junit5.AndroidJUnit5Builder"
+                        }
+                    }
+                }
+
+                // Ensure JUnit 5 API present on androidTest classpath
+                dependencies.add("androidTestImplementation", "org.junit.jupiter:junit-jupiter:5.13.4")
+            }
+        }
+    }
+
+}

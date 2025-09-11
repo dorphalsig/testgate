@@ -1,12 +1,6 @@
 package com.supernova.testgate.detekt
 
-import io.gitlab.arturbosch.detekt.api.CodeSmell
-import io.gitlab.arturbosch.detekt.api.Config
-import io.gitlab.arturbosch.detekt.api.Debt
-import io.gitlab.arturbosch.detekt.api.Entity
-import io.gitlab.arturbosch.detekt.api.Issue
-import io.gitlab.arturbosch.detekt.api.Rule
-import io.gitlab.arturbosch.detekt.api.Severity
+import io.gitlab.arturbosch.detekt.api.*
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtNamedFunction
 
@@ -21,7 +15,7 @@ class RequireHarnessAnnotationOnTests(config: Config) : Rule(config) {
         id = "RequireHarnessAnnotationOnTests",
         severity = Severity.CodeSmell,
         description = "Classes with @Test methods must be annotated with @UseTestHarness or @PureUnitTest.",
-        debt = Debt.Companion.FIVE_MINS
+        debt = Debt.FIVE_MINS
     )
 
     override fun visitClass(klass: KtClass) {
@@ -44,7 +38,7 @@ class RequireHarnessAnnotationOnTests(config: Config) : Rule(config) {
         if (!hasHarness) {
             report(
                 CodeSmell(
-                    issue, Entity.Companion.atName(klass),
+                    issue, Entity.atName(klass),
                     "Add @UseTestHarness or @PureUnitTest to this test class."
                 )
             )

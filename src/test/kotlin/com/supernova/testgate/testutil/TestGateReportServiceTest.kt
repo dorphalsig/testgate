@@ -1,12 +1,16 @@
 package com.supernova.testgate
 
 import com.supernova.testgate.testutil.TestData
-import io.mockk.*
+import io.mockk.Called
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
 import org.gradle.api.GradleException
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
-import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.lang.reflect.Field
@@ -51,7 +55,7 @@ class TestGateReportServiceTest {
 
     /** Concrete test subclass that returns our mocked Params. */
     private class TestableService(
-        private val p: TestGateReportService.Params
+        private val p: Params
     ) : TestGateReportService() {
 
         override fun getParameters(): Params = p
