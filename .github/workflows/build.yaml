@@ -1,29 +1,76 @@
-name: Build JAR
+name: Test & Replace Packages
 
 on:
   push:
     branches: [ main ]
-  pull_request:
   workflow_dispatch:
+  pull_request:
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - uses: gradle/actions/setup-gradle@v3
-      - name: Build
-        run: ./gradlew build
+
+      # Read Gradle project version (fails if 'version' is missing/unspecified)
+      - name: Read version from Gradle
+        id: gv
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="$(./gradlew -q properties --console=plain | sed -n 's/^version:\s*//p' | head -n1)"
+          if [[ -z "${VER:-}" || "${VER}" == "unspecified" ]]; then
+            echo "Root project version is not set." >&2
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      # Delete the exact version from ORG scope (ignore errors)
+      - name: Delete existing version (org scope)
+        uses: SmartsquareGmbH/delete-old-packages@v0.8.1
+        continue-on-error: true
+        with:
+          organization: ${{ github.repository_owner }}
+          type: maven
+          names: |
+            com.supernova.testgate
+            com.supernova.testgate.com.supernova.testgate.gradle.plugin
+          version-pattern: ^${{ steps.gv.outputs.version }}$
+          keep: 0
+
+      # Delete the exact version from USER scope (ignore errors)
+      # (Only one of org/user applies to your repo; we try both idempotently.)
+      - name: Delete existing version (user scope)
+        uses: SmartsquareGmbH/delete-old-packages@v0.8.1
+        continue-on-error: true
+        with:
+          user: ${{ github.repository_owner }}
+          type: maven
+          names: |
+            com.supernova.testgate
+            com.supernova.testgate.com.supernova.testgate.gradle.plugin
+          version-pattern: ^${{ steps.gv.outputs.version }}$
+          keep: 0
+
+      # Run tests (and build)
+      - name: Test & build
+        run: ./gradlew check build --stacktrace
+
+      # Publish (skips on pull_request to avoid pushing from PRs)
       - name: Publish to GitHub Packages
+        if: github.event_name != 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew publish
-      - name: Upload JAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: testgate-jar
-          path: build/libs/*.jar
