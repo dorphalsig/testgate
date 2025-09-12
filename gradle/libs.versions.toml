@@ -7,6 +7,9 @@ junit = "5.13.4"
 mockk = "1.14.5"
 detekt = "1.23.8"
 
+[plugins]
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+
 [libraries]
 moshi-kotlin = { module = "com.squareup.moshi:moshi-kotlin", version.ref = "moshi" }
 gradle = { module = "com.android.tools.build:gradle", version.ref = "agp" }
