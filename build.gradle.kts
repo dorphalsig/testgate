@@ -35,6 +35,7 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(kotlin("gradle-plugin", "1.9.24"))
+    testImplementation(libs.detekt.gradle.plugin)
 
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
@@ -60,7 +61,7 @@ tasks.jacocoTestCoverageVerification {
             limit {
                 counter = "LINE"
                 value = "COVEREDRATIO"
-                minimum = "0.70".toBigDecimal()
+                minimum = "0.90".toBigDecimal()
             }
         }
     }

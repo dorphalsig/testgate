@@ -4,11 +4,10 @@ import org.gradle.api.tasks.testing.Test
 import org.gradle.testfixtures.ProjectBuilder
 import org.jetbrains.kotlin.gradle.plugin.KotlinPluginWrapper
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test as JUnitTest
 
-class TestGateConventionPluginCoverageTest {
+class TestGateConventionPluginFunctionalTest {
 
     private fun project() = ProjectBuilder.builder().build().also {
         it.plugins.apply(KotlinPluginWrapper::class.java)
@@ -16,13 +15,11 @@ class TestGateConventionPluginCoverageTest {
     }
 
     @JUnitTest
-    fun `applies quality plugins when available`() {
+    fun `applies quality plugins`() {
         val p = project()
         assertTrue(p.pluginManager.hasPlugin("jacoco"))
-        assertFalse(
-            p.pluginManager.hasPlugin("io.gitlab.arturbosch.detekt"),
-            "detekt is optional and should not fail if absent",
-        )
+        assertTrue(p.pluginManager.hasPlugin("io.gitlab.arturbosch.detekt"))
+        assertDoesNotThrow { p.tasks.named("detekt").get() }
     }
 
     @JUnitTest

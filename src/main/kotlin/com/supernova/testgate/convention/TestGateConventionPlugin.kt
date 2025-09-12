@@ -44,16 +44,11 @@ class TestGateConventionPlugin : Plugin<Project> {
         plugins.apply(TestGatePlugin::class.java)
         (androidPlugins + kotlinPlugins).forEach { pid ->
             pluginManager.withPlugin(pid) {
-                val detektApplied = runCatching {
-                    pluginManager.apply("io.gitlab.arturbosch.detekt")
-                    true
-                }.getOrElse { false }
+                pluginManager.apply("io.gitlab.arturbosch.detekt")
                 pluginManager.apply("jacoco")
                 if (pid in androidPlugins) extensions.extraProperties["isAndroid"] = true
-                if (detektApplied) {
-                    wireCustomDetektRules()
-                    configureDetekt()
-                }
+                wireCustomDetektRules()
+                configureDetekt()
                 configureAndroidLint()
                 configureJacoco()
                 configureJUnitWiring()
