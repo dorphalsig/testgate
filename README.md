@@ -199,7 +199,7 @@ Note: For JVM/KMP modules, coverage piggybacks on `jacocoTestReport`. For Androi
 You can use the low-level plugin directly, or apply the provided convention plugin that also enables and configures Detekt, Lint, Jacoco, and some Android test conveniences.
 
 Option A) Apply the convention plugin (recommended if available)
-- The convention plugin class is `com.supernova.testgate.convention.TestGateConventionPlugin`. If published with an id, apply it by id; otherwise, apply by type in a build logic module.
+- The convention plugin class is `com.supernova.testgate.conventions.TestGateConventionPlugin`. If published with an id, apply it by id; otherwise, apply by type in a build logic module.
 - What it does:
   - Applies `TestGatePlugin`
   - Applies and configures Detekt (XML report enabled, `ignoreFailures=true`), Android Lint (XML on, non-fatal), Jacoco
@@ -211,14 +211,14 @@ Example (build.gradle.kts in module)
 ```
 plugins {
     // If you have a published plugin id, prefer that:
-    // id("com.supernova.testgate.convention")
+    // id("com.supernova.testgate.conventions")
 
     // Or apply by type if you include this plugin in build-logic
     id("org.jetbrains.kotlin.android") version "<...>"
 }
 
 // If applying by type from included build logic:
-// plugins.apply(com.supernova.testgate.convention.TestGateConventionPlugin::class.java)
+// plugins.apply(com.supernova.testgate.conventions.TestGateConventionPlugin::class.java)
 ```
 
 Option B) Apply the core plugin

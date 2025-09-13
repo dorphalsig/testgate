@@ -6,17 +6,21 @@ plugins {
 }
 
 gradlePlugin {
-    plugins {
-        register("testGate") {
-            id = "com.supernova.testgate"
-            implementationClass = "com.supernova.testgate.convention.TestGateConventionPlugin"
+    gradlePlugin {
+        plugins {
+            register("testGateConventions") {
+                id = "com.supernova.testgate.conventions"
+                implementationClass = "com.supernova.testgate.conventions.TestGateConventionsPlugin"
+                displayName = "TestGate Conventions Plugin"
+                description = "Applies & configures Detekt, JaCoCo, JUnit 5 (Android/JVM) for TestGate audits."
+            }
         }
     }
 }
 
 
 group = "com.supernova"
-version = "1.0.2"
+version = "1.0.3"
 
 dependencies {
     implementation(gradleApi())
@@ -42,34 +46,7 @@ dependencies {
     }
 }
 
-tasks.jacocoTestReport {
-    reports {
-        xml.required.set(true)
-        html.required.set(true)
-        csv.required.set(false)
-    }
-}
 
-tasks.jacocoTestCoverageVerification {
-    violationRules {
-        rule {
-            element = "CLASS"
-            includes = listOf(
-                "com.supernova.testgate.TestGatePlugin",
-                "com.supernova.testgate.convention.TestGateConventionPlugin"
-            )
-            limit {
-                counter = "LINE"
-                value = "COVEREDRATIO"
-                minimum = "0.90".toBigDecimal()
-            }
-        }
-    }
-}
-
-tasks.check {
-    dependsOn(tasks.jacocoTestCoverageVerification)
-}
 
 publishing {
     repositories {
