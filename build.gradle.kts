@@ -43,6 +43,7 @@ dependencies {
 
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
+        dependsOn("pluginUnderTestMetadata")
     }
 }
 
