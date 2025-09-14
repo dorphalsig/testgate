@@ -1,9 +1,10 @@
 package com.supernova.testgate.conventions
 
-import io.gitlab.arturbosch.detekt.Detekt
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.provider.Property
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.testing.Test
 import org.gradle.kotlin.dsl.*
 import org.gradle.testing.jacoco.tasks.JacocoReport
@@ -25,15 +26,31 @@ class TestGateConventionsPlugin : Plugin<Project> {
         // JUnit 5 everywhere
         configureJUnit5()
 
-        // Detekt is mandatory (fail fast if not resolvable)
-        applyDetektOrFail()
+        var detektApplied = false
+        fun applyDetektOnce() {
+            if (!detektApplied) {
+                detektApplied = true
+                applyDetektOrFail()
+            }
+        }
 
         // Android wiring, only if Android plugins are present
-        pluginManager.withPlugin("com.android.application") { onAndroid(mandatoryRunner = true) }
-        pluginManager.withPlugin("com.android.library") { onAndroid(mandatoryRunner = true) }
+        pluginManager.withPlugin("com.android.application") {
+            onAndroid(mandatoryRunner = true)
+            applyDetektOnce()
+        }
+        pluginManager.withPlugin("com.android.library") {
+            onAndroid(mandatoryRunner = true)
+            applyDetektOnce()
+        }
 
-        // JVM wiring: guarantee a JaCoCo XML even for Kotlin-only modules
-        if (!isAndroid()) configureJvmJacocoGuaranteed()
+        // Defer remaining setup until after other plugins are applied
+        afterEvaluate {
+            if (!isAndroid()) {
+                configureJvmJacocoGuaranteed()
+            }
+            applyDetektOnce()
+        }
 
         // Apply TestGate LAST so audits can finalize after producers are registered
         applyTestGateByClass()
@@ -54,23 +71,27 @@ class TestGateConventionsPlugin : Plugin<Project> {
             plugins.apply("io.gitlab.arturbosch.detekt")
         }.getOrElse { ex ->
             throw IllegalStateException(
-                "Detekt plugin is required but could not be resolved. " + "Add pluginManagement { repositories { gradlePluginPortal(); google(); mavenCentral() } } " + "to settings.gradle(.kts), or add the detekt-gradle-plugin to build-logic dependencies.",
+                "Detekt plugin is required but could not be resolved. " +
+                    "Add pluginManagement { repositories { gradlePluginPortal(); google(); mavenCentral() } } " +
+                    "to settings.gradle(.kts), or add the detekt-gradle-plugin to build-logic dependencies.",
                 ex
             )
         }
 
-        tasks.withType<Detekt>().configureEach {
-            reports {
-                xml.required.set(true)
-                xml.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.xml"))
-                html.required.set(false)
-                txt.required.set(false)
-                sarif.required.set(false)
-                md.required.set(false)
+        val detektTasks = tasks.matching { it.javaClass.name == "io.gitlab.arturbosch.detekt.Detekt" }
+        detektTasks.configureEach {
+            val reports = this.javaClass.getMethod("getReports").invoke(this)
+            val xml = reports.javaClass.getMethod("getXml").invoke(reports)
+            (xml.javaClass.getMethod("getRequired").invoke(xml) as Property<Boolean>).set(true)
+            (xml.javaClass.getMethod("getOutputLocation").invoke(xml) as RegularFileProperty)
+                .set(layout.buildDirectory.file("reports/detekt/detekt.xml"))
+            listOf("Html", "Txt", "Sarif", "Md").forEach { name ->
+                val report = reports.javaClass.getMethod("get$name").invoke(reports)
+                (report.javaClass.getMethod("getRequired").invoke(report) as Property<Boolean>).set(false)
             }
         }
         tasks.matching { it.name == "check" }.configureEach {
-            dependsOn(tasks.withType<Detekt>())
+            dependsOn(detektTasks)
         }
     }
 
