@@ -6,6 +6,7 @@ moshi = "1.15.2"
 junit = "5.13.4"
 mockk = "1.14.5"
 detekt = "1.23.8"
+mannodermaus = "1.13.1.0"
 
 [plugins]
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
@@ -15,6 +16,7 @@ moshi-kotlin = { module = "com.squareup.moshi:moshi-kotlin", version.ref = "mosh
 gradle = { module = "com.android.tools.build:gradle", version.ref = "agp" }
 detekt-gradle-plugin = { module = "io.gitlab.arturbosch.detekt:detekt-gradle-plugin", version.ref = "detekt" }
 detekt-api = { module = "io.gitlab.arturbosch.detekt:detekt-api", version.ref = "detekt" }
+junit5-android-plugin = { module = "de.mannodermaus.gradle.plugins:android-junit5", version.ref = "mannodermaus" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
