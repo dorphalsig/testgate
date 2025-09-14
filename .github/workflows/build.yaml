@@ -24,49 +24,35 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v3
 
-      # Validate what's in the environment (gh is preinstalled on hosted runners)
-      - name: Validate prerequisites
-        run: |
-          set -euo pipefail
-          echo "gh: $(gh --version | head -n1)"
-          echo "Java:"
-          java -version
-          echo "Gradle wrapper present?"; test -x ./gradlew && echo "yes" || (echo "no" && exit 1)
+      - name: Test & build
+        run: ./gradlew check build --stacktrace
 
-      # Nuke ALL versions of ALL Maven packages (org + user scopes) using gh
-      - name: Delete ALL package versions (org/user)
-        if: github.event_name != 'pull_request'
+      - name: Delete ALL user-scoped Maven packages (entire packages)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # must have admin access to packages
-          OWNER: ${{ github.repository_owner }}
+          GH_TOKEN: ${{ secrets.PACKAGES_DELETE_PAT || secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}   # your username
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          nuke_scope() {
-            local scope="$1" # 'orgs' or 'users'
-            echo "Listing ${scope}/${OWNER} Maven packages…"
-            # --paginate handles multi-page results; --jq extracts names cleanly
-            pkgs=$(gh api --paginate "/${scope}/${OWNER}/packages?package_type=maven" --jq '.[].name' 2>/dev/null || true)
-            [[ -z "${pkgs}" ]] && echo "No Maven packages under ${scope}/${OWNER}" && return 0
 
-            while IFS= read -r pkg; do
-              echo "Deleting ALL versions of ${pkg} in ${scope}/${OWNER}"
-              # List *all* version IDs for this package
-              gh api --paginate "/${scope}/${OWNER}/packages/maven/${pkg}/versions" --jq '.[].id' \
-              | while read -r vid; do
-                  echo " - deleting version id=${vid}"
-                  # Keep going even if a specific version cannot be deleted (e.g., >5k downloads)
-                  gh api -X DELETE "/${scope}/${OWNER}/packages/maven/${pkg}/versions/${vid}" || echo "   (skip/fail id=${vid})"
-                done
-            done <<< "${pkgs}"
-          }
+          echo "Listing Maven packages for user ${OWNER}..."
+          names=$(gh api --paginate "/users/${OWNER}/packages?package_type=maven" --jq '.[].name' 2>/dev/null || true)
 
-          # Try both scopes idempotently—one of them will match your owner type
-          nuke_scope orgs || true
-          nuke_scope users || true
+          if [[ -z "${names}" ]]; then
+            echo "No Maven packages found for ${OWNER}."
+            exit 0
+          fi
 
-      - name: Test & build
-        run: ./gradlew check build --stacktrace
+          while IFS= read -r name; do
+            [[ -z "$name" ]] && continue
+            echo "Deleting /users/${OWNER}/packages/maven/${name} ..."
+            if gh api -X DELETE "/users/${OWNER}/packages/maven/${name}"; then
+              echo "  ✅ deleted maven:${name}"
+            else
+              echo "  ❌ failed to delete maven:${name} (permissions? >5k downloads on a public version?)" >&2
+            fi
+          done <<< "${names}"        
 
       - name: Publish to GitHub Packages
         if: github.event_name != 'pull_request'
