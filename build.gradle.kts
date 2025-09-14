@@ -26,9 +26,10 @@ dependencies {
     implementation(gradleApi())
     implementation(gradleTestKit())
     implementation(libs.moshi.kotlin)
-    // We reference these plugin classes in code; keep them compileOnly so consumers don’t get them transitively
-    compileOnly(libs.gradle)                // com.android.tools.build:gradle:<agp version from catalog>
-    compileOnly(libs.detekt.gradle.plugin)  // detekt-gradle-plugin:<detekt version from catalog>
+    // We compile against AGP without bundling it; Detekt & Android JUnit5 ship for consumers
+    compileOnly(libs.gradle) // com.android.tools.build:gradle:<agp version from catalog>
+    implementation(libs.detekt.gradle.plugin) // detekt-gradle-plugin:<detekt version from catalog>
+    implementation(libs.junit5.android.plugin) // de.mannodermaus:android-junit5
     // detekt custom rules API for our provider/rules
     compileOnly(libs.detekt.api)
 
@@ -39,7 +40,7 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(kotlin("gradle-plugin", "1.9.24"))
-    testImplementation(libs.detekt.gradle.plugin)
+    // runtime plugin deps come transitively from implementation
 
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
