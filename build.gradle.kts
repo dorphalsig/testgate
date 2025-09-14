@@ -9,7 +9,7 @@ gradlePlugin {
     gradlePlugin {
         plugins {
             register("testGateConventions") {
-                id = "com.supernova.testgate.conventions"
+                id = "com.supernova.testgate"
                 implementationClass = "com.supernova.testgate.conventions.TestGateConventionsPlugin"
                 displayName = "TestGate Conventions Plugin"
                 description = "Applies & configures Detekt, JaCoCo, JUnit 5 (Android/JVM) for TestGate audits."
@@ -20,7 +20,7 @@ gradlePlugin {
 
 
 group = "com.supernova"
-version = "1.0.3"
+version = "1.0.0"
 
 dependencies {
     implementation(gradleApi())

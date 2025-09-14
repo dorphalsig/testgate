@@ -1,4 +1,4 @@
-name: Test & Replace Packages
+name: Test, Build, and Publish to GitHub Maven
 
 on:
   push:
@@ -6,71 +6,65 @@ on:
   workflow_dispatch:
   pull_request:
 
-permissions:
-  contents: read
-  packages: write
-
 jobs:
-  build-and-publish:
+  test-and-build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: '21'
+          java-version: '11'  # Adjust version as needed
+          distribution: 'temurin'
 
-      - uses: gradle/actions/setup-gradle@v3
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
 
-      # Read Gradle project version (fails if 'version' is missing/unspecified)
-      - name: Read version from Gradle
-        id: gv
-        shell: bash
+      - name: Run tests
+        run: mvn clean test
+
+      - name: Build project
+        run: mvn compile package -DskipTests
+
+  publish:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'  # Adjust version as needed
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Delete existing packages from GitHub Maven
         run: |
-          set -euo pipefail
-          VER="$(./gradlew -q properties --console=plain | sed -n 's/^version:\s*//p' | head -n1)"
-          if [[ -z "${VER:-}" || "${VER}" == "unspecified" ]]; then
-            echo "Root project version is not set." >&2
-            exit 1
-          fi
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-
-      # Delete the exact version from ORG scope (ignore errors)
-      - name: Delete existing version (org scope)
-        uses: SmartsquareGmbH/delete-old-packages@v0.8.1
-        continue-on-error: true
-        with:
-          organization: ${{ github.repository_owner }}
-          type: maven
-          names: |
-            com.supernova.testgate
-            com.supernova.testgate.com.supernova.testgate.gradle.plugin
-          version-pattern: ^${{ steps.gv.outputs.version }}$
-          keep: 0
-
-      # Delete the exact version from USER scope (ignore errors)
-      # (Only one of org/user applies to your repo; we try both idempotently.)
-      - name: Delete existing version (user scope)
-        uses: SmartsquareGmbH/delete-old-packages@v0.8.1
-        continue-on-error: true
-        with:
-          user: ${{ github.repository_owner }}
-          type: maven
-          names: |
-            com.supernova.testgate
-            com.supernova.testgate.com.supernova.testgate.gradle.plugin
-          version-pattern: ^${{ steps.gv.outputs.version }}$
-          keep: 0
-
-      # Run tests (and build)
-      - name: Test & build
-        run: ./gradlew check build --stacktrace
-
-      # Publish (skips on pull_request to avoid pushing from PRs)
-      - name: Publish to GitHub Packages
-        if: github.event_name != 'pull_request'
+          OWNER=$(echo ${{ github.repository }} | cut -d'/' -f1)
+          gh api "users/$OWNER/packages?package_type=maven" --jq '.[].name' | \
+          xargs -I {} gh api -X DELETE "users/$OWNER/packages/maven/{}" || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./gradlew publish
+
+
+      - name: Publish to GitHub Maven
+        run: mvn deploy -DskipTests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
