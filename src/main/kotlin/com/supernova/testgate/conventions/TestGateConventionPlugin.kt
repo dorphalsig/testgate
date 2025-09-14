@@ -7,6 +7,7 @@ import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.tasks.testing.Test
 import org.gradle.kotlin.dsl.*
 import org.gradle.testing.jacoco.tasks.JacocoReport
+import java.io.File
 
 /**
  * TestGateConventionsPlugin
@@ -79,6 +80,7 @@ class TestGateConventionsPlugin : Plugin<Project> {
     private fun Project.onAndroid(mandatoryRunner: Boolean) {
         setAndroid(true)
         applyAndroidJUnit5Runner(mandatoryRunner)
+        configureAndroidLint()
         registerAndroidJacocoReport()
     }
 
@@ -105,6 +107,24 @@ class TestGateConventionsPlugin : Plugin<Project> {
     }
 
 
+    private fun Project.configureAndroidLint() {
+        tasks.matching { it.name == "lintDebug" }.configureEach {
+            val xml = layout.buildDirectory.file("reports/lint-results-debug.xml")
+            val task = this
+            runCatching {
+                task.javaClass.getMethod("setXmlOutput", File::class.java)
+                    .invoke(task, xml.get().asFile)
+                task.javaClass.methods.firstOrNull { m ->
+                    m.name == "setHtmlOutput" && m.parameterTypes.contentEquals(arrayOf(File::class.java))
+                }?.invoke(task, null)
+                task.javaClass.methods.firstOrNull { m ->
+                    m.name == "setTextOutput" && m.parameterTypes.contentEquals(arrayOf(File::class.java))
+                }?.invoke(task, null)
+            }
+        }
+    }
+
+    
     private fun Project.configureJacoco(report: JacocoReport) = with(report) {
         sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
         reports {

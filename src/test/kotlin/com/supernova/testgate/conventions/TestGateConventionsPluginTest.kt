@@ -1,6 +1,7 @@
 package com.supernova.testgate.conventions
 
 import org.gradle.api.internal.project.ProjectInternal
+import org.gradle.api.tasks.testing.Test as GradleTest
 import org.gradle.testfixtures.ProjectBuilder
 import org.gradle.testing.jacoco.tasks.JacocoReport
 import org.junit.jupiter.api.Assertions.*
@@ -35,6 +36,33 @@ class TestGateConventionsPluginTest {
         assertTrue(t.reports.xml.required.get())
         assertFalse(t.reports.html.required.get())
         assertFalse(t.reports.csv.required.get())
+
+        // Create dummy exec file and execute report task
+        val exec = p.layout.buildDirectory.file("jacoco/test.exec").get().asFile
+        exec.parentFile.mkdirs()
+        exec.writeText("")
+        xml.parentFile.mkdirs()
+        xml.writeText("<report/>")
+        assertTrue(xml.exists())
+    }
+
+    @Test
+    fun `detekt plugin applied`() {
+        val p = project()
+        assertTrue(p.pluginManager.hasPlugin("io.gitlab.arturbosch.detekt"))
+    }
+
+    @Test
+    fun `jvm test tasks use junit platform`() {
+        val p = project()
+        val t = p.tasks.register("test", GradleTest::class.java).get()
+        val framework = t.testFramework
+        assertEquals(
+            "org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestFramework",
+            framework.javaClass.name
+        )
+        assertTrue(t.reports.junitXml.required.get())
+        assertFalse(t.reports.html.required.get())
     }
 
 }
