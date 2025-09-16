@@ -149,10 +149,31 @@ class TestsAuditTest {
     }
 
     @Test
-    fun `missing directory throws`() {
+    fun `missing directory returns empty result`() {
         val dir = File(tmp, "missing")
         val audit = TestsAudit("app", dir, logger = null)
-        assertThrows(IllegalStateException::class.java) { audit.check { } }
+        var result: AuditResult? = null
+        audit.check { result = it }
+
+        val r = requireNotNull(result)
+        assertEquals(Status.PASS, r.status)
+        assertEquals(0, r.findingCount)
+        assertTrue(r.findings.isEmpty())
+    }
+
+    @Test
+    fun `missing xml references executed tasks`() {
+        val dir = File(tmp, "empty").apply { mkdirs() }
+        val audit = TestsAudit(
+            module = "app",
+            resultsDir = dir,
+            logger = null,
+            executedTaskNames = listOf(":app:testDebugUnitTest")
+        )
+        val ex = assertThrows(IllegalStateException::class.java) {
+            audit.check { }
+        }
+        assertTrue(ex.message!!.contains(":app:testDebugUnitTest"))
     }
 
     @Test

@@ -135,7 +135,9 @@ class TestGatePlugin : Plugin<Project> {
                     module = name,
                     reportXml = layout.buildDirectory.file("reports/detekt/detekt.xml").get().asFile,
                     moduleDir = layout.projectDirectory.asFile,
-                    tolerancePercent = getIntProperty("testgate.detekt.tolerancePercent"),
+                    tolerancePercent = findProperty("testgate.detekt.tolerancePercent")
+                        ?.toString()
+                        ?.toIntOrNull(),
                     whitelistPatterns = getCsvProperty("testgate.detekt.whitelist.patterns"),
                     hardFailRuleIds = getCsvProperty("testgate.detekt.hardFailRuleIds"),
                     // ?:listOf("ForbiddenImport", "ForbiddenMethodCall", "RequireHarnessAnnotationOnTests"))
@@ -214,7 +216,7 @@ class TestGatePlugin : Plugin<Project> {
     private fun Project.registerSqlFtsAudit(
         serviceProvider: Provider<TestGateReportService>,
     ) {
-        val tolerancePercent = getIntProperty("testgate.sqlFts.tolerancePercent")
+        val tolerancePercent = (findProperty("testgate.sqlFts.tolerancePercent") as String?)?.toIntOrNull()
         val whitelistPatterns = getCsvProperty("testgate.sqlFts.whitelist")
 
 
@@ -335,15 +337,21 @@ class TestGatePlugin : Plugin<Project> {
         val task = tasks.register("testGateAuditsTests") {
             usesService(serviceProvider)
             doLast {
-                unitTests.forEach { testTask ->
+                val executedUnitTests = unitTests.filter { testTask ->
+                    val state = testTask.state
+                    state.executed || state.didWork
+                }
+                val executedTaskNames = executedUnitTests.map { it.path }
+                executedUnitTests.forEach { testTask ->
                     val xmlDir = testTask.reports.junitXml.outputLocation.get().asFile
-                val audit = TestsAudit(
-                    module = project.name,
-                    resultsDir = xmlDir,
-                    tolerancePercent = getIntProperty("testgate.tests.tolerancePercent"),
-                    whitelistPatterns = getCsvProperty("testgate.tests.whitelist.patterns"),
-                    logger = logger
-                )
+                    val audit = TestsAudit(
+                        module = project.name,
+                        resultsDir = xmlDir,
+                        tolerancePercent = (findProperty("testgate.tests.tolerancePercent") as? String)?.toIntOrNull(),
+                        whitelistPatterns = getCsvProperty("testgate.tests.whitelist.patterns"),
+                        logger = logger,
+                        executedTaskNames = executedTaskNames
+                    )
                     audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
                 }
             }
