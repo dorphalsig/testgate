@@ -3,10 +3,10 @@ package com.supernova.testgate.conventions
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.file.ConfigurableFileCollection
-import org.gradle.api.provider.Property
-import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.testing.Test
-import org.gradle.kotlin.dsl.*
+import org.gradle.kotlin.dsl.named
+import org.gradle.kotlin.dsl.register
+import org.gradle.kotlin.dsl.withType
 import org.gradle.testing.jacoco.tasks.JacocoReport
 import java.io.File
 
@@ -62,6 +62,7 @@ class TestGateConventionsPlugin : Plugin<Project> {
             useJUnitPlatform()
             reports.junitXml.required.set(true)
             reports.html.required.set(false)
+            ignoreFailures = true
         }
     }
 
@@ -72,26 +73,27 @@ class TestGateConventionsPlugin : Plugin<Project> {
         }.getOrElse { ex ->
             throw IllegalStateException(
                 "Detekt plugin is required but could not be resolved. " +
-                    "Add pluginManagement { repositories { gradlePluginPortal(); google(); mavenCentral() } } " +
-                    "to settings.gradle(.kts), or add the detekt-gradle-plugin to build-logic dependencies.",
+                        "Add pluginManagement { repositories { gradlePluginPortal(); google(); mavenCentral() } } " +
+                        "to settings.gradle(.kts), or add the detekt-gradle-plugin to build-logic dependencies.",
                 ex
             )
         }
 
-        val detektTasks = tasks.matching { it.javaClass.name == "io.gitlab.arturbosch.detekt.Detekt" }
-        detektTasks.configureEach {
-            val reports = this.javaClass.getMethod("getReports").invoke(this)
-            val xml = reports.javaClass.getMethod("getXml").invoke(reports)
-            (xml.javaClass.getMethod("getRequired").invoke(xml) as Property<Boolean>).set(true)
-            (xml.javaClass.getMethod("getOutputLocation").invoke(xml) as RegularFileProperty)
-                .set(layout.buildDirectory.file("reports/detekt/detekt.xml"))
-            listOf("Html", "Txt", "Sarif", "Md").forEach { name ->
-                val report = reports.javaClass.getMethod("get$name").invoke(reports)
-                (report.javaClass.getMethod("getRequired").invoke(report) as Property<Boolean>).set(false)
+        tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+            ignoreFailures = true
+
+            reports {
+                xml.required.set(true)
+                xml.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.xml"))
+                html.required.set(false)
+                txt.required.set(false)
+                sarif.required.set(false)
+                md.required.set(false)
             }
         }
+
         tasks.matching { it.name == "check" }.configureEach {
-            dependsOn(detektTasks)
+            dependsOn(tasks.withType<io.gitlab.arturbosch.detekt.Detekt>())
         }
     }
 
@@ -102,6 +104,18 @@ class TestGateConventionsPlugin : Plugin<Project> {
         setAndroid(true)
         applyAndroidJUnit5Runner(mandatoryRunner)
         configureAndroidLint()
+
+        // Configure lint options to not fail the build, allowing TestGate to be the decider.
+        extensions.findByName("android")?.let { androidExt ->
+            try {
+                val lintExt = androidExt.javaClass.getMethod("getLint").invoke(androidExt)
+                lintExt.javaClass.getMethod("setAbortOnError", Boolean::class.javaPrimitiveType).invoke(lintExt, false)
+                logger.info("Configured android.lint.abortOnError = false to allow TestGate to process reports.")
+            } catch (e: Exception) {
+                logger.warn("Could not configure android.lint.abortOnError=false. Lint may fail the build prematurely.", e)
+            }
+        }
+
         registerAndroidJacocoReport()
     }
 
@@ -122,8 +136,8 @@ class TestGateConventionsPlugin : Plugin<Project> {
             val defaultConfig =
                 androidExt.javaClass.methods.firstOrNull { it.name == "getDefaultConfig" }?.invoke(androidExt)
             defaultConfig?.javaClass?.methods?.firstOrNull {
-                    it.name == "setTestInstrumentationRunner" && it.parameterTypes.contentEquals(arrayOf(String::class.java))
-                }?.invoke(defaultConfig, "de.mannodermaus.junit5.AndroidJUnit5")
+                it.name == "setTestInstrumentationRunner" && it.parameterTypes.contentEquals(arrayOf(String::class.java))
+            }?.invoke(defaultConfig, "de.mannodermaus.junit5.AndroidJUnit5")
         }
     }
 
@@ -145,7 +159,7 @@ class TestGateConventionsPlugin : Plugin<Project> {
         }
     }
 
-    
+
     private fun Project.configureJacoco(report: JacocoReport) = with(report) {
         sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
         reports {
@@ -234,3 +248,4 @@ class TestGateConventionsPlugin : Plugin<Project> {
     }.let { files(it) }
 
 }
+
