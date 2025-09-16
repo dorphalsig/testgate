@@ -25,7 +25,8 @@ class TestsAudit(
     private val resultsDir: File,
     tolerancePercent: Int? = null,
     private val whitelistPatterns: List<String> = emptyList(),
-    private val logger: Logger? = null
+    private val logger: Logger? = null,
+    private val executedTaskNames: Collection<String> = emptyList()
 ) : Audit {
 
     private val tolerance = (tolerancePercent ?: 10).coerceAtLeast(0)
@@ -66,11 +67,12 @@ class TestsAudit(
 
     private fun parseAll(dir: File): List<TestCase> {
         if (!dir.exists() || !dir.isDirectory) {
-            throw IllegalStateException("JUnit XML directory not found: ${dir.path}")
+            logMissingReports("JUnit XML directory not found", dir)
+            return emptyList()
         }
         val xmlFiles = dir.listFiles { f -> f.isFile && f.name.lowercase().endsWith(".xml") }?.toList().orEmpty()
         if (xmlFiles.isEmpty()) {
-            throw IllegalStateException("No JUnit XML files found in: ${dir.path}")
+            throw IllegalStateException(missingXmlMessage(dir))
         }
         var count = 0
         val all = mutableListOf<TestCase>()
@@ -86,6 +88,20 @@ class TestsAudit(
             }
         }
         return all
+    }
+
+    private fun logMissingReports(reason: String, dir: File) {
+        val tasks = executedTaskNames.joinToString(", ").ifEmpty { "<none>" }
+        logger?.warn("[auditsTests] module=$module -> $reason at ${dir.path}. Executed tasks: $tasks")
+    }
+
+    private fun missingXmlMessage(dir: File): String {
+        val executed = executedTaskNames.takeIf { it.isNotEmpty() }?.joinToString(", ")
+        return if (executed != null) {
+            "No JUnit XML files found in: ${dir.path} (executed tasks: $executed)"
+        } else {
+            "No JUnit XML files found in: ${dir.path}"
+        }
     }
 
     private fun parseFile(file: File): List<TestCase> {
