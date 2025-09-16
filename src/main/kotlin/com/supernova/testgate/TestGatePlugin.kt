@@ -165,19 +165,23 @@ class TestGatePlugin : Plugin<Project> {
         val whitelist = getCsvProperty("testgate.harness.whitelist")
 
         tasks.register("harnessReuseAudit") {
-            val audit = HarnessReuseAudit(
-                module = name,
-                moduleDir = layout.projectDirectory.asFile,
-                logger = logger,
-                dataHelpers = dataHelpers,
-                syncHelpers = syncHelpers,
-                uiHelpers = uiHelpers,
-                crossHelpers = crossHelpers,
-                whitelistPatterns = whitelist
-            )
+            doLast {
 
-            val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
-            audit.check(callback)
+
+                val audit = HarnessReuseAudit(
+                    module = name,
+                    moduleDir = layout.projectDirectory.asFile,
+                    logger = logger,
+                    dataHelpers = dataHelpers,
+                    syncHelpers = syncHelpers,
+                    uiHelpers = uiHelpers,
+                    crossHelpers = crossHelpers,
+                    whitelistPatterns = whitelist
+                )
+
+                val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
+                audit.check(callback)
+            }
         }
         compilationTasks.configureEach { finalizedBy("harnessReuseAudit") }
 
