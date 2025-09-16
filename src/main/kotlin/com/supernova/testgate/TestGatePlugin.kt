@@ -296,14 +296,20 @@ class TestGatePlugin : Plugin<Project> {
         // Task that runs AFTER unit tests and evaluates JUnit XML
         val task = tasks.register("testGateAuditsTests") {
             doLast {
-                unitTests.forEach { testTask ->
+                val executedUnitTests = unitTests.filter { testTask ->
+                    val state = testTask.state
+                    state.executed || state.didWork
+                }
+                val executedTaskNames = executedUnitTests.map { it.path }
+                executedUnitTests.forEach { testTask ->
                     val xmlDir = testTask.reports.junitXml.outputLocation.get().asFile
                     val audit = TestsAudit(
                         module = project.name,
                         resultsDir = xmlDir,
                         tolerancePercent = (findProperty("testgate.tests.tolerancePercent") as? String)?.toIntOrNull(),
                         whitelistPatterns = getCsvProperty("testgate.tests.whitelist.patterns"),
-                        logger = logger
+                        logger = logger,
+                        executedTaskNames = executedTaskNames
                     )
                     audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
                 }
