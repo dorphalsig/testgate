@@ -26,34 +26,35 @@ jobs:
 
       - name: Test & build
         run: ./gradlew check build --stacktrace
-
-      - name: Delete ALL user-scoped Maven packages (entire packages)
-        env:
-          GH_TOKEN: ${{ secrets.PACKAGES_DELETE_PAT || secrets.GITHUB_TOKEN }}
-          OWNER: ${{ github.repository_owner }}   # your username
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Listing Maven packages for user ${OWNER}..."
-          names=$(gh api --paginate "/users/${OWNER}/packages?package_type=maven" --jq '.[].name' 2>/dev/null || true)
-
-          if [[ -z "${names}" ]]; then
-            echo "No Maven packages found for ${OWNER}."
-            exit 0
-          fi
-
-          while IFS= read -r name; do
-            [[ -z "$name" ]] && continue
-            echo "Deleting /users/${OWNER}/packages/maven/${name} ..."
-            if gh api -X DELETE "/users/${OWNER}/packages/maven/${name}"; then
-              echo "  ✅ deleted maven:${name}"
-            else
-              echo "  ❌ failed to delete maven:${name} (permissions? >5k downloads on a public version?)" >&2
-            fi
-          done <<< "${names}"        
-
+#
+#      - name: Delete ALL user-scoped Maven packages (entire packages)
+#        env:
+#          GH_TOKEN: ${{ secrets.PACKAGES_DELETE_PAT || secrets.GITHUB_TOKEN }}
+#          OWNER: ${{ github.repository_owner }}   # your username
+#        continue-on-error: true
+#        shell: bash
+#        run: |
+#          set -euo pipefail
+#
+#          echo "Listing Maven packages for user ${OWNER}..."
+#          names=$(gh api --paginate "/users/${OWNER}/packages?package_type=maven" --jq '.[].name' 2>/dev/null || true)
+#
+#          if [[ -z "${names}" ]]; then
+#            echo "No Maven packages found for ${OWNER}."
+#            exit 0
+#          fi
+#
+#          while IFS= read -r name; do
+#            [[ -z "$name" ]] && continue
+#            echo "Deleting /users/${OWNER}/packages/maven/${name} ..."
+#            if gh api -X DELETE "/users/${OWNER}/packages/maven/${name}"; then
+#              echo "  ✅ deleted maven:${name}"
+#            else
+#              echo "  ❌ failed to delete maven:${name} (permissions? >5k downloads on a public version?)" >&2
+#            fi
+#          done <<< "${names}"
+#
+#
       - name: Publish to GitHub Packages
         if: github.event_name != 'pull_request'
         env:
