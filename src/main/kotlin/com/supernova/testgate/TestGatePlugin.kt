@@ -28,7 +28,21 @@ class TestGatePlugin : Plugin<Project> {
 
 
     fun Project.getCsvProperty(key: String, default: List<String> = emptyList()): List<String> =
-        (findProperty(key) as? String)?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: default
+        findProperty(key)?.toString()?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: default
+
+    fun Project.getIntProperty(key: String): Int? =
+        findProperty(key)?.toString()?.toIntOrNull()
+
+    fun Project.getBooleanProperty(key: String): Boolean? =
+        findProperty(key)?.toString()?.let { parseBoolean(it) }
+
+    private fun parseBoolean(raw: String): Boolean? {
+        return when (raw.trim().lowercase()) {
+            "true", "1", "yes", "y", "on" -> true
+            "false", "0", "no", "n", "off" -> false
+            else -> null
+        }
+    }
 
 
     override fun apply(project: Project) {
@@ -51,9 +65,9 @@ class TestGatePlugin : Plugin<Project> {
         val audit = FixturesAudit(
             module = name,
             moduleDir = layout.projectDirectory.asFile,
-            tolerancePercent = (findProperty("testgate.fixtures.tolerancePercent") as String?)?.toInt(),
-            minBytes = (findProperty("testgate.fixtures.minBytes") as String?)?.toInt() ?: 256,
-            maxBytes = (findProperty("testgate.fixtures.maxBytes") as String?)?.toInt() ?: 8192,
+            tolerancePercent = getIntProperty("testgate.fixtures.tolerancePercent"),
+            minBytes = getIntProperty("testgate.fixtures.minBytes") ?: 256,
+            maxBytes = getIntProperty("testgate.fixtures.maxBytes") ?: 8192,
             whitelistPatterns = getCsvProperty("testgate.fixtures.whitelist.patterns")
         )
         val task = tasks.register("runFixturesAudit") {
@@ -96,6 +110,8 @@ class TestGatePlugin : Plugin<Project> {
 
     private fun registerGlobalReportService(project: Project): Provider<TestGateReportService> {
         val gradle = project.gradle
+        val uploadEnabled = project.getBooleanProperty("testgate.report.upload")
+
         return gradle.sharedServices.registerIfAbsent(
             "testGateReportService",
             TestGateReportService::class.java
@@ -104,7 +120,7 @@ class TestGatePlugin : Plugin<Project> {
             parameters.outputFile.set(
                 project.rootProject.layout.buildDirectory.file("reports/testgate-results.json")
             )
-            parameters.uploadEnabled.convention(true)
+            parameters.uploadEnabled.convention(uploadEnabled ?: true)
         }
     }
 
@@ -235,7 +251,7 @@ class TestGatePlugin : Plugin<Project> {
                     module = name,
                     reportXml = layout.buildDirectory.file("reports/lint-results-debug.xml").get().asFile,
                     moduleDir = layout.projectDirectory.asFile,
-                    tolerancePercent = (findProperty("testgate.lint.tolerancePercent") as? String)?.toIntOrNull(),
+                    tolerancePercent = getIntProperty("testgate.lint.tolerancePercent"),
                     whitelistPatterns = getCsvProperty("testgate.lint.whitelist.patterns"),
                     logger = logger
                 )
@@ -352,13 +368,13 @@ class TestGatePlugin : Plugin<Project> {
                 usesService(serviceProvider)
                 doLast {
                     val xmlDir = layout.buildDirectory.dir("outputs/androidTest-results/connected").get().asFile
-                    val audit = TestsAudit(
-                        module = project.name,
-                        resultsDir = xmlDir,
-                        tolerancePercent = (findProperty("testgate.instrumentedTests.tolerancePercent") as? String)?.toIntOrNull(),
-                        whitelistPatterns = getCsvProperty("testgate.instrumentedTests.whitelist.patterns"),
-                        logger = logger
-                    )
+                val audit = TestsAudit(
+                    module = project.name,
+                    resultsDir = xmlDir,
+                    tolerancePercent = getIntProperty("testgate.instrumentedTests.tolerancePercent"),
+                    whitelistPatterns = getCsvProperty("testgate.instrumentedTests.whitelist.patterns"),
+                    logger = logger
+                )
                     audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
                 }
             }
@@ -388,7 +404,7 @@ class TestGatePlugin : Plugin<Project> {
                     reportXml = layout.buildDirectory.file("reports/jacoco/testDebugUnitTestReport/testDebugUnitTestReport.xml")
                         .get().asFile,
                     moduleDir = layout.projectDirectory.asFile,
-                    thresholdPercent = (findProperty("testgate.coverage.branches.minPercent") as? String)?.toIntOrNull(),
+                    thresholdPercent = getIntProperty("testgate.coverage.branches.minPercent"),
                     whitelistPatterns = getCsvProperty("testgate.coverage.whitelist.patterns"),
                 )
                 // ensure the JaCoCo report task runs before this
