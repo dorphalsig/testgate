@@ -42,10 +42,12 @@ class TestGatePlugin : Plugin<Project> {
         )
 
         // Placeholder: where each audit's hidden tasks will be wired later.
-        registerAuditWiring(project)
+        registerAuditWiring(project, serviceProvider)
     }
 
-    private fun Project.registerFixturesAudit() {
+    private fun Project.registerFixturesAudit(
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
         val audit = FixturesAudit(
             module = name,
             moduleDir = layout.projectDirectory.asFile,
@@ -55,6 +57,7 @@ class TestGatePlugin : Plugin<Project> {
             whitelistPatterns = getCsvProperty("testgate.fixtures.whitelist.patterns")
         )
         val task = tasks.register("runFixturesAudit") {
+            usesService(serviceProvider)
             doLast {
                 audit.check(extensions.getByType(TestGateExtension::class.java).onAuditResult)
             }
@@ -71,10 +74,11 @@ class TestGatePlugin : Plugin<Project> {
      *  - testgate.stack.allowlist.files
      *  - testgate.stack.mainDispatcherRules
      */
-    fun Project.registerTestStackAudit() {
+    fun Project.registerTestStackAudit(serviceProvider: Provider<TestGateReportService>) {
         val allowFiles = getCsvProperty("testgate.stack.allowlist.files")
 
         val auditTask = tasks.register("testStackPolicyAudit") {
+            usesService(serviceProvider)
             doLast {
                 val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
                 TestStackAudit(
@@ -86,9 +90,7 @@ class TestGatePlugin : Plugin<Project> {
             }
         }
 
-        compilationTasks.configureEach {
-            finalizedBy(auditTask)
-        }
+        compilationTasks.configureEach { finalizedBy(auditTask) }
     }
 
 
@@ -106,15 +108,20 @@ class TestGatePlugin : Plugin<Project> {
         }
     }
 
-    private fun Project.registerDetektAudit() {
+    private fun Project.registerDetektAudit(
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
 
         val task = tasks.register("detektAudit") {
+            usesService(serviceProvider)
             doLast {
                 val audit = DetektAudit(
                     module = name,
                     reportXml = layout.buildDirectory.file("reports/detekt/detekt.xml").get().asFile,
                     moduleDir = layout.projectDirectory.asFile,
-                    tolerancePercent = findProperty("testgate.detekt.tolerancePercent") as Int?,
+                    tolerancePercent = findProperty("testgate.detekt.tolerancePercent")
+                        ?.toString()
+                        ?.toIntOrNull(),
                     whitelistPatterns = getCsvProperty("testgate.detekt.whitelist.patterns"),
                     hardFailRuleIds = getCsvProperty("testgate.detekt.hardFailRuleIds"),
                     // ?:listOf("ForbiddenImport", "ForbiddenMethodCall", "RequireHarnessAnnotationOnTests"))
@@ -129,7 +136,9 @@ class TestGatePlugin : Plugin<Project> {
         }
     }
 
-    private fun Project.registerHarnessReuseAudit() {
+    private fun Project.registerHarnessReuseAudit(
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
 
         val dataHelpers = getCsvProperty(
             "testgate.harness.helpers.data", listOf(
@@ -164,7 +173,8 @@ class TestGatePlugin : Plugin<Project> {
 
         val whitelist = getCsvProperty("testgate.harness.whitelist")
 
-        tasks.register("harnessReuseAudit") {
+        val task = tasks.register("harnessReuseAudit") {
+            usesService(serviceProvider)
             doLast {
 
 
@@ -183,16 +193,19 @@ class TestGatePlugin : Plugin<Project> {
                 audit.check(callback)
             }
         }
-        compilationTasks.configureEach { finalizedBy("harnessReuseAudit") }
+        compilationTasks.configureEach { finalizedBy(task) }
 
     }
 
-    private fun Project.registerSqlFtsAudit() {
+    private fun Project.registerSqlFtsAudit(
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
         val tolerancePercent = (findProperty("testgate.sqlFts.tolerancePercent") as String?)?.toIntOrNull()
         val whitelistPatterns = getCsvProperty("testgate.sqlFts.whitelist")
 
 
         val task = tasks.register("auditsSqlFts") {
+            usesService(serviceProvider)
             doLast {
                 val audit = SqlFtsAudit(
                     module = name,
@@ -211,9 +224,12 @@ class TestGatePlugin : Plugin<Project> {
         }
     }
 
-    private fun Project.registerAndroidLintAudit() {
+    private fun Project.registerAndroidLintAudit(
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
 
         val task = tasks.register("lintDebugAudit") {
+            usesService(serviceProvider)
             doLast {
                 val audit = AndroidLintAudit(
                     module = name,
@@ -230,13 +246,16 @@ class TestGatePlugin : Plugin<Project> {
         tasks.matching { name == "lintDebug" }.configureEach { finalizedBy(task) }
     }
 
-    private fun Project.registerCompilationAuditWiring() {
+    private fun Project.registerCompilationAuditWiring(
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
         val audit = CompilationAudit(
             module = name,
             moduleDir = layout.projectDirectory.asFile
         )
 
         val auditTask = tasks.register("compilationAudit") {
+            usesService(serviceProvider)
             doLast {
                 val callback = extensions.getByType(TestGateExtension::class.java).onAuditResult
                 audit.check(callback)
@@ -263,8 +282,11 @@ class TestGatePlugin : Plugin<Project> {
         }
     }
 
-    private fun Project.registerStructureAudit() {
+    private fun Project.registerStructureAudit(
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
         val task = tasks.register("structureAudit") {
+            usesService(serviceProvider)
             doLast {
                 val instrumentedAllowList = getCsvProperty(
                     "testgate.structureAudit.instrumentedAllowList",
@@ -288,13 +310,16 @@ class TestGatePlugin : Plugin<Project> {
 
     }
 
-    private fun Project.registerTestsAudit() {
+    private fun Project.registerTestsAudit(
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
         // Collect all JVM unit-test tasks for this module
         @Suppress("UNCHECKED_CAST")
         val unitTests = testTasks as Collection<Test>
 
         // Task that runs AFTER unit tests and evaluates JUnit XML
         val task = tasks.register("testGateAuditsTests") {
+            usesService(serviceProvider)
             doLast {
                 val executedUnitTests = unitTests.filter { testTask ->
                     val state = testTask.state
@@ -318,10 +343,13 @@ class TestGatePlugin : Plugin<Project> {
         testTasks.configureEach { finalizedBy(task) }
     }
 
-    private fun Project.registerInstrumentedTestsAudit() {
+    private fun Project.registerInstrumentedTestsAudit(
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
         // Wire only for Android modules
         val wire: () -> Unit = {
             val task = tasks.register("testGateInstrumentedAuditsTests") {
+                usesService(serviceProvider)
                 doLast {
                     val xmlDir = layout.buildDirectory.dir("outputs/androidTest-results/connected").get().asFile
                     val audit = TestsAudit(
@@ -349,8 +377,11 @@ class TestGatePlugin : Plugin<Project> {
     }
 
     // inside your per-module registration
-    private fun Project.registerCoverageBranchesAudit() {
+    private fun Project.registerCoverageBranchesAudit(
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
         val task = tasks.register("coverageBranchesAudit") {
+            usesService(serviceProvider)
             doLast {
                 val audit = CoverageBranchesAudit(
                     module = name,
@@ -379,19 +410,22 @@ class TestGatePlugin : Plugin<Project> {
      *      project.extensions.getByType(TestGateExtension::class.java)
      *          .onAuditResult(auditResult)
      */
-    private fun registerAuditWiring(project: Project) {
+    private fun registerAuditWiring(
+        project: Project,
+        serviceProvider: Provider<TestGateReportService>,
+    ) {
         with(project) {
-            registerCompilationAuditWiring()
-            registerDetektAudit()
-            registerAndroidLintAudit()
-            registerHarnessReuseAudit()
-            registerSqlFtsAudit()
-            registerStructureAudit()
-            registerTestStackAudit()
-            registerFixturesAudit()
-            registerTestsAudit()
-            registerCoverageBranchesAudit()
-            registerInstrumentedTestsAudit()
+            registerCompilationAuditWiring(serviceProvider)
+            registerDetektAudit(serviceProvider)
+            registerAndroidLintAudit(serviceProvider)
+            registerHarnessReuseAudit(serviceProvider)
+            registerSqlFtsAudit(serviceProvider)
+            registerStructureAudit(serviceProvider)
+            registerTestStackAudit(serviceProvider)
+            registerFixturesAudit(serviceProvider)
+            registerTestsAudit(serviceProvider)
+            registerCoverageBranchesAudit(serviceProvider)
+            registerInstrumentedTestsAudit(serviceProvider)
         }
     }
 }
