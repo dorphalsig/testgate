@@ -20,7 +20,7 @@ gradlePlugin {
 
 
 group = "com.supernova"
-version = "1.0.3"
+version = "1.0.4"
 
 dependencies {
     implementation(gradleApi())
