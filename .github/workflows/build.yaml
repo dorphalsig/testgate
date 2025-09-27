@@ -54,6 +54,15 @@ jobs:
       - name: Assemble JAR(s)
         run: ./gradlew clean assemble -Pversion="${{ steps.tag.outputs.new_version }}" --no-daemon
 
+      - name: Prepare stable-named JAR
+        run: |
+          set -euo pipefail
+          JAR="$(find . -path '*/build/libs/*.jar' -type f \
+                 ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-plain.jar' \
+                 | head -n1)"
+          mkdir -p dist
+          cp "$JAR" dist/testgate-plugin.jar
+
       - name: Create Release and upload JAR(s)
         if: ${{ github.run_attempt == 1 && steps.tag.outputs.new_tag }}
         uses: softprops/action-gh-release@v2
@@ -62,7 +71,7 @@ jobs:
           name: ${{ steps.tag.outputs.new_tag }}
           body: ${{ steps.tag.outputs.changelog }}
           files: |
-            **/build/libs/*.jar
-          fail_on_unmatched_files: false
+            dist/testgate-plugin.jar
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
