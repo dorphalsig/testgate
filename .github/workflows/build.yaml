@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # needed for tags & releases
+  contents: write
 
 env:
-  JAVA_VERSION: '23'   # change if you need 21/11/etc.
+  JAVA_VERSION: '23'   # keep as you had it (ensure your Gradle wrapper supports JDK 23)
 
 jobs:
   build-test-and-release:
@@ -19,7 +19,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # required so we can compute the next tag
+          fetch-depth: 0
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -33,43 +33,35 @@ jobs:
       - name: Ensure Gradle wrapper is executable
         run: chmod +x ./gradlew
 
-      # ---------- Test ----------
       - name: Run tests
         run: ./gradlew test --no-daemon
 
-      # ---------- Auto-bump tag (Conventional Commits) ----------
-      # Bump rules:
-      #  - "BREAKING CHANGE" or "feat!": major
-      #  - "feat": minor
-      #  - otherwise: patch
+      # --- Use default bump logic (Conventional Commits) ---
       - name: Determine and create next tag
         id: tag
+        if: ${{ github.run_attempt == 1 }}  # avoid double-bump on re-runs
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          default_bump: patch
-          release_branches: main
-          tag_prefix: v
+          # no custom options -> defaults
 
       - name: Show new version
-        run: echo "New version is ${{ steps.tag.outputs.new_tag }}"
-
-      # ---------- Build with bumped version ----------
-      # Pass the version to Gradle; ensure your build.gradle uses 'version' from project properties.
-      - name: Assemble JAR(s)
         run: |
-          VERSION="${{ steps.tag.outputs.new_tag }}"
-          ./gradlew clean assemble -Pversion="${VERSION#v}" --no-daemon
+          echo "new_tag=${{ steps.tag.outputs.new_tag }}"
+          echo "new_version=${{ steps.tag.outputs.new_version }}"
 
-      # ---------- Create GitHub Release & upload JAR(s) ----------
+      # Build using the version without the prefix (action provides new_version)
+      - name: Assemble JAR(s)
+        run: ./gradlew clean assemble -Pversion="${{ steps.tag.outputs.new_version }}" --no-daemon
+
       - name: Create Release and upload JAR(s)
+        if: ${{ github.run_attempt == 1 && steps.tag.outputs.new_tag }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.new_tag }}
           name: ${{ steps.tag.outputs.new_tag }}
           body: ${{ steps.tag.outputs.changelog }}
           files: |
-            build/libs/*.jar
             **/build/libs/*.jar
           fail_on_unmatched_files: false
         env:
